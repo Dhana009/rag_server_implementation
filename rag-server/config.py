@@ -71,37 +71,46 @@ class Config(BaseModel):
     project_root: Optional[Path] = None  # Will be set during load_config
     rag_server_dir: Optional[Path] = None  # Will be set during load_config (renamed from mcp_server_dir for clarity)
 
-def _find_project_root(start_path: Path) -> Path:
+def _find_config_file(start_path: Path) -> Path:
     """
-    Search upward from start_path to find directory containing mcp-config.json
+    Find mcp-config.json - check in rag-server/ first, then search upward
     
     Args:
-        start_path: Starting directory to search from
+        start_path: Starting directory (rag-server/)
         
     Returns:
-        Path to project root directory
+        Path to mcp-config.json file
         
     Raises:
         FileNotFoundError: If mcp-config.json not found
     """
-    current = start_path.resolve()
+    # First, check in rag-server/ directory
+    config_in_server = start_path / "mcp-config.json"
+    if config_in_server.exists():
+        return config_in_server
     
-    # Search upward for mcp-config.json
+    # Check in rag-server/config/ directory
+    config_in_config = start_path / "config" / "mcp-config.json"
+    if config_in_config.exists():
+        return config_in_config
+    
+    # Fallback: search upward (for backward compatibility)
+    current = start_path.resolve()
     while current != current.parent:
         config_file = current / "mcp-config.json"
         if config_file.exists():
-            return current
+            return config_file
         current = current.parent
     
-    # Fallback: use current working directory
+    # Last fallback: current working directory
     cwd = Path.cwd()
     if (cwd / "mcp-config.json").exists():
-        return cwd
+        return cwd / "mcp-config.json"
     
     raise FileNotFoundError(
-        f"Could not find mcp-config.json. Searched from {start_path} upward to {current}. "
-        f"Please set MCP_PROJECT_ROOT or MCP_CONFIG_FILE environment variable, "
-        f"or ensure mcp-config.json exists in the project root."
+        f"Could not find mcp-config.json. Checked: {start_path}/mcp-config.json, "
+        f"{start_path}/config/mcp-config.json, and searched upward from {start_path}. "
+        f"Please set MCP_CONFIG_FILE environment variable or create mcp-config.json in rag-server/ directory."
     )
 
 
@@ -124,30 +133,46 @@ def load_config() -> Config:
     # 1. Determine rag-server directory (where this file is located)
     rag_server_dir = Path(__file__).parent.resolve()
     
-    # 2. Determine project root
+    # 2. Find config file (prefer rag-server/ directory)
+    config_file = os.getenv("MCP_CONFIG_FILE")
+    if config_file:
+        config_path = Path(config_file).resolve()
+    else:
+        config_path = _find_config_file(rag_server_dir)
+    
+    # 3. Determine project root
     project_root = os.getenv("MCP_PROJECT_ROOT")
     if project_root:
         project_root = Path(project_root).resolve()
         if not project_root.exists():
             raise FileNotFoundError(f"MCP_PROJECT_ROOT points to non-existent directory: {project_root}")
     else:
-        # Auto-detect: search upward from rag-server for mcp-config.json
-        project_root = _find_project_root(rag_server_dir)
-    
-    # 3. Determine config file path
-    config_file = os.getenv("MCP_CONFIG_FILE")
-    if config_file:
-        config_path = Path(config_file).resolve()
-    else:
-        config_path = project_root / "mcp-config.json"
+        # Default: parent of rag-server/ (one level up)
+        # This can be overridden in config file with "project_root" field
+        project_root = rag_server_dir.parent.resolve()
     
     if not config_path.exists():
         raise FileNotFoundError(
             f"Missing mcp-config.json at {config_path}. "
-            f"Set MCP_CONFIG_FILE or ensure mcp-config.json exists in project root: {project_root}"
+            f"Set MCP_CONFIG_FILE or create mcp-config.json in rag-server/ directory."
         )
     
-    # 4. Load Qdrant configuration (try qdrant.config.json first, then .env.qdrant)
+    # 4. Load project config JSON first (to get project_root if specified)
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config_data = json.load(f)
+    
+    # Override project_root if specified in config
+    if "project_root" in config_data:
+        project_root_from_config = Path(config_data["project_root"])
+        if not project_root_from_config.is_absolute():
+            # Relative to config file location
+            project_root = (config_path.parent / project_root_from_config).resolve()
+        else:
+            project_root = project_root_from_config.resolve()
+        if not project_root.exists():
+            raise FileNotFoundError(f"project_root in config points to non-existent directory: {project_root}")
+    
+    # 5. Load Qdrant configuration (try qdrant.config.json first, then .env.qdrant)
     # Check in rag-server dir first, then config/ folder
     qdrant_config_path = rag_server_dir / "qdrant.config.json"
     if not qdrant_config_path.exists():

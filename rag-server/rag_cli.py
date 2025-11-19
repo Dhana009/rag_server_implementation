@@ -26,7 +26,11 @@ def cmd_index(args):
     if args.local:
         sys.argv.append('--local')
     if args.cleanup:
-        sys.argv.append('--prune')
+        if args.dry_run:
+            # Don't add --prune, so it will be dry-run mode
+            pass
+        else:
+            sys.argv.append('--prune')
     
     return index_main()
 
@@ -104,6 +108,12 @@ def cmd_setup(args):
     return setup_main()
 
 
+def cmd_clean(args):
+    """Clean command - clean database"""
+    from scripts.clean_database import main as clean_main
+    return clean_main()
+
+
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
@@ -111,16 +121,18 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  mcp index                    # Index everything
-  mcp index --docs             # Index docs only
-  mcp index --code             # Index code only
-  mcp index --cleanup          # Index + cleanup
-  mcp stats                    # Show statistics
-  mcp recover --all            # Recover deleted chunks
-  mcp delete --preview         # Preview deletions
-  mcp delete --confirm         # Confirm deletions
-  mcp start                    # Start server
-  mcp setup                    # Verify setup
+  mcp index                              # Index everything
+  mcp index --docs                       # Index docs only
+  mcp index --code                       # Index code only
+  mcp index --cleanup --dry-run          # Preview cleanup (safe)
+  mcp index --cleanup                    # Index + soft-delete orphaned chunks
+  mcp stats                              # Show statistics
+  mcp recover --all                      # Recover soft-deleted chunks
+  mcp delete --preview                   # Preview permanent deletions
+  mcp delete --confirm                   # Permanently delete soft-deleted chunks
+  mcp clean                              # Delete ALL data (destructive)
+  mcp start                              # Start server
+  mcp setup                              # Verify setup
         """
     )
     
@@ -132,7 +144,8 @@ Examples:
     index_parser.add_argument('--code', action='store_true', help='Index code only')
     index_parser.add_argument('--cloud', action='store_true', help='Cloud collection only')
     index_parser.add_argument('--local', action='store_true', help='Local collection only')
-    index_parser.add_argument('--cleanup', action='store_true', help='Clean up orphaned chunks (replaces --prune)')
+    index_parser.add_argument('--cleanup', action='store_true', help='Clean up orphaned chunks (soft-delete chunks from removed files)')
+    index_parser.add_argument('--dry-run', action='store_true', help='Preview cleanup without actually deleting (use with --cleanup)')
     index_parser.set_defaults(func=cmd_index)
     
     # Stats command
@@ -166,6 +179,10 @@ Examples:
     # Setup command
     setup_parser = subparsers.add_parser('setup', help='Verify setup and configuration')
     setup_parser.set_defaults(func=cmd_setup)
+    
+    # Clean command
+    clean_parser = subparsers.add_parser('clean', help='Clean all data from database (WARNING: destructive)')
+    clean_parser.set_defaults(func=cmd_clean)
     
     args = parser.parse_args()
     

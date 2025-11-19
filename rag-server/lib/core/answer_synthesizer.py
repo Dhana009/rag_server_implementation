@@ -87,8 +87,8 @@ class AnswerSynthesizer:
                     pass
 
         if not items:
-            # No numbered items found, return full content
-            logger.warning("No numbered items found, returning full content")
+            # No numbered items found, return full content (this is expected for non-enumeration content)
+            logger.debug("No numbered items found, returning full content")
             return "\n\n".join([c.content for c in chunks])
 
         # Sort by number and format

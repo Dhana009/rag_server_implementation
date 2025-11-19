@@ -14,32 +14,38 @@ import os
 import sys
 from pathlib import Path
 
-# Add rag-server to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Suppress tqdm progress bars (they clutter stderr in MCP servers)
+# Set environment variable to disable tqdm output
+os.environ['TQDM_DISABLE'] = '1'
 
+# Import mcp BEFORE adding current directory to path (to avoid conflict with local files)
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, ListToolsRequest, ListToolsResult, CallToolRequest, CallToolResult
+
+# Add rag-server to path (after mcp imports to avoid shadowing)
+sys.path.insert(0, str(Path(__file__).parent))
 from lib.tools.search import search_tool, search_tool_mcp
 from lib.tools.ask import ask_tool, ask_tool_mcp
 from lib.tools.explain import explain_tool, explain_tool_mcp
 
-# Configure logging to stderr AND file (MCP requires stdout for JSON-RPC only)
+# Configure logging: INFO to file, WARNING/ERROR to stderr (MCP requires stdout for JSON-RPC only)
 log_file = Path(__file__).parent / "rag-server.log"
 file_handler = logging.FileHandler(log_file, encoding='utf-8')
-file_handler.setLevel(logging.INFO)
+file_handler.setLevel(logging.DEBUG)  # Log everything to file
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
+# Only log WARNING and above to stderr to avoid cluttering Cursor's error panel
 stderr_handler = logging.StreamHandler(sys.stderr)
-stderr_handler.setLevel(logging.INFO)
+stderr_handler.setLevel(logging.WARNING)  # Only warnings and errors to stderr
 stderr_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
 logging.basicConfig(
-    level=logging.INFO,
-    handlers=[file_handler, stderr_handler]  # Log to both file and stderr
+    level=logging.DEBUG,  # Capture everything
+    handlers=[file_handler, stderr_handler]
 )
 logger = logging.getLogger(__name__)
-logger.info(f"Logging to file: {log_file}")
+logger.info(f"Logging to file: {log_file} (INFO+ to file, WARNING+ to stderr)")
 
 # Get server name from environment variable or use default
 server_name = os.getenv("MCP_SERVER_NAME", "rag-server")

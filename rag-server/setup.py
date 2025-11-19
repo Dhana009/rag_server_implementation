@@ -10,10 +10,10 @@ from pathlib import Path
 def check_python_version():
     """Check if Python version is 3.8+"""
     if sys.version_info < (3, 8):
-        print("❌ Python 3.8 or higher is required")
+        print("[ERROR] Python 3.8 or higher is required")
         print(f"   Current version: {sys.version}")
         return False
-    print(f"✅ Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    print(f"[OK] Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
     return True
 
 def check_dependencies():
@@ -35,13 +35,13 @@ def check_dependencies():
     for package_name, import_name in required_packages.items():
         try:
             __import__(import_name)
-            print(f"✅ {package_name}")
+            print(f"[OK] {package_name}")
         except ImportError:
-            print(f"❌ {package_name} - not installed")
+            print(f"[ERROR] {package_name} - not installed")
             missing.append(package_name)
     
     if missing:
-        print(f"\n⚠️  Missing packages: {', '.join(missing)}")
+        print(f"\n[WARNING] Missing packages: {', '.join(missing)}")
         print("   Run: pip install -r requirements.txt")
         return False
     return True
@@ -55,15 +55,15 @@ def create_qdrant_config():
         example_path = base_dir / "qdrant.config.example.json"
     
     if config_path.exists():
-        print(f"✅ qdrant.config.json already exists")
+        print(f"[OK] qdrant.config.json already exists")
         return True
     
     if example_path.exists():
         # Copy example
         import shutil
         shutil.copy(example_path, config_path)
-        print(f"✅ Created qdrant.config.json from example")
-        print(f"   ⚠️  Please edit {config_path} with your Qdrant credentials")
+        print(f"[OK] Created qdrant.config.json from example")
+        print(f"   [WARNING] Please edit {config_path} with your Qdrant credentials")
         return True
     else:
         # Create from scratch
@@ -74,25 +74,29 @@ def create_qdrant_config():
         }
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=2)
-        print(f"✅ Created qdrant.config.json")
-        print(f"   ⚠️  Please edit {config_path} with your Qdrant credentials")
+        print(f"[OK] Created qdrant.config.json")
+        print(f"   [WARNING] Please edit {config_path} with your Qdrant credentials")
         return True
 
 def check_project_config():
-    """Check if mcp-config.json exists in project root"""
+    """Check if mcp-config.json exists"""
     current_dir = Path(__file__).parent
-    project_root = current_dir.parent
     
-    # Check in project root first, then config/ folder
-    config_path = project_root / "mcp-config.json"
+    # Check in rag-server/ directory first
+    config_path = current_dir / "mcp-config.json"
+    if not config_path.exists():
+        config_path = current_dir / "config" / "mcp-config.json"
     if not config_path.exists():
         config_path = current_dir / "config" / "mcp-config.example.json"
-    if config_path.exists():
-        print(f"✅ Found mcp-config.json at {config_path}")
+    
+    if config_path.exists() and "example" not in str(config_path):
+        print(f"[OK] Found mcp-config.json at {config_path}")
         return True
     else:
-        print(f"⚠️  mcp-config.json not found at {config_path}")
-        print(f"   Create this file in your project root to configure document paths")
+        print(f"[WARNING] mcp-config.json not found")
+        print(f"   Create mcp-config.json in rag-server/ directory")
+        if config_path.exists() and "example" in str(config_path):
+            print(f"   Example available at: {config_path}")
         return False
 
 def main():
@@ -123,7 +127,7 @@ def main():
     
     print("=" * 60)
     if all_ok:
-        print("✅ Setup complete! You're ready to start.")
+        print("[OK] Setup complete! You're ready to start.")
         print()
         print("Next steps:")
         print("  1. Edit qdrant.config.json with your Qdrant credentials")
@@ -131,7 +135,7 @@ def main():
         print("  3. Run: python indexing/index_all.py --prune")
         print("  4. Run: python main.py")
     else:
-        print("⚠️  Setup incomplete. Please fix the issues above.")
+        print("[WARNING] Setup incomplete. Please fix the issues above.")
     print("=" * 60)
     
     return 0 if all_ok else 1

@@ -78,6 +78,11 @@ class HybridVectorStore:
     
     def _ensure_payload_indexes(self, client: QdrantClient, collection_name: str, collection_type: str):
         """Create payload indexes for filtering performance"""
+        # Skip payload indexes for local Qdrant - they're not supported and cause warnings
+        if collection_type == "local":
+            logger.debug(f"Skipping payload indexes for local Qdrant (not supported)")
+            return
+        
         try:
             # Index fields with proper schema types:
             # - KEYWORD for string fields (file_path, section, language, content_type)
