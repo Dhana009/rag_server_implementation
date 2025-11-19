@@ -1,0 +1,68 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+rag-server.log
+mcp-server.log
+
+# Data directories
+qdrant_data/
+*.sqlite
+*.sqlite3
+
+# Environment files (will be provided via env vars in container)
+.env
+.env.local
+.env.*.local
+
+# Documentation (keep README)
+docs/
+*.md
+!README.md
+
+# Test files
+test_*.py
+*_test.py
+tests/
+custominstructions/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+*~
+
+# MCP config (will be mounted or provided via env)
+mcp-config.json
+
+# LinkedIn directory (not part of rag-server)
+LinkedIn/
+

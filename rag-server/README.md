@@ -631,7 +631,7 @@ See `auto_setup.py` for the complete implementation.
 
 ## License
 
-[Add your license information here]
+This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
 
 ## Contributing
 

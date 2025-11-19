@@ -1,0 +1,62 @@
+[
+  {
+    "name": "search",
+    "description": "Semantic search across all project documentation. Returns relevant chunks with file:line citations.",
+    "arguments": [
+      {
+        "name": "query",
+        "type": "string",
+        "desc": "Search query (e.g., 'selector policy', 'flow-4 implementation', 'architecture rules')"
+      },
+      {
+        "name": "content_type",
+        "type": "string",
+        "desc": "Filter by content type: 'doc', 'code', or 'all'",
+        "enum": ["doc", "code", "all"],
+        "default": "all"
+      },
+      {
+        "name": "language",
+        "type": "string",
+        "desc": "Filter by language: 'python', 'typescript', 'markdown', or 'all'",
+        "enum": ["python", "typescript", "markdown", "all"],
+        "default": "all"
+      },
+      {
+        "name": "top_k",
+        "type": "number",
+        "desc": "Number of results to return (default: 10, min: 1, max: 50)",
+        "default": 10
+      }
+    ]
+  },
+  {
+    "name": "ask",
+    "description": "Ask clarifications, comparisons, or explanations about the project. Returns synthesized answers from documentation.",
+    "arguments": [
+      {
+        "name": "question",
+        "type": "string",
+        "desc": "Your question (e.g., 'Should I use aria-label or aria-labelledby?', 'What's the difference between v1 and v2 UI?')"
+      },
+      {
+        "name": "context",
+        "type": "string",
+        "desc": "Optional context to help refine the answer",
+        "default": ""
+      }
+    ]
+  },
+  {
+    "name": "explain",
+    "description": "Get comprehensive explanations of flows, policies, architecture, or infrastructure. Provides context and rationale.",
+    "arguments": [
+      {
+        "name": "topic",
+        "type": "string",
+        "desc": "Topic to explain (e.g., 'phase-1 flows', 'selector policy', 'architecture rules', 'authentication flow')"
+      }
+    ]
+  }
+]
+
