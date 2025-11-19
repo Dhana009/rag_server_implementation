@@ -82,32 +82,61 @@ def setup_rag_server():
     # Step 4: Create project config
     print("[4/6] Setting up project configuration...")
     mcp_config = rag_server_dir / "mcp-config.json"
+    
+    # Auto-detect paths first (always do this to get actual project structure)
+    project_root = rag_server_dir.parent
+    docs = []
+    code = []
+    
+    # Detect documentation
+    if (project_root / "docs").exists():
+        docs.append("docs/**/*.md")
+    if (project_root / "README.md").exists():
+        docs.append("README.md")
+    # Always include rag-server docs for testing
+    docs.append("rag-server/README.md")
+    if (rag_server_dir / "custominstructions").exists():
+        docs.append("rag-server/custominstructions/**/*.md")
+    if not docs:
+        docs = ["README.md"]
+    
+    # Detect code - check for common patterns
+    code_found = False
+    for pattern in ["src", "lib", "app", "backend", "frontend"]:
+        if (project_root / pattern).exists():
+            code.append(f"{pattern}/**/*.py")
+            code_found = True
+    
+    # If no common folders, check if rag-server has code (for this project)
+    if not code_found:
+        # Count Python files in rag-server
+        py_files = list(rag_server_dir.glob("**/*.py"))
+        if py_files:
+            code.append("rag-server/**/*.py")
+            code_found = True
+    
+    # Fallback: search for any Python files
+    if not code_found:
+        all_py = list(project_root.glob("**/*.py"))
+        if all_py:
+            # Use a broad pattern but exclude common ignore dirs
+            code.append("**/*.py")
+        else:
+            code = ["rag-server/**/*.py"]  # Default to rag-server at least
+    
     if not mcp_config.exists():
         example = config_dir / "mcp-config.example.json"
         if example.exists():
-            shutil.copy(example, mcp_config)
-            print(f"[OK] Created {mcp_config} from example")
+            # Load example and update with detected paths
+            with open(example, 'r') as f:
+                config_data = json.load(f)
+            # Override with auto-detected paths
+            config_data["cloud_docs"] = docs
+            config_data["code_paths"] = code[:5]  # Limit to 5
+            with open(mcp_config, 'w') as f:
+                json.dump(config_data, f, indent=2)
+            print(f"[OK] Created {mcp_config} from example with auto-detected paths")
         else:
-            # Auto-detect paths
-            project_root = rag_server_dir.parent
-            docs = []
-            code = []
-            
-            # Detect documentation
-            if (project_root / "docs").exists():
-                docs.append("docs/**/*.md")
-            if (project_root / "README.md").exists():
-                docs.append("README.md")
-            if not docs:
-                docs = ["README.md"]
-            
-            # Detect code
-            for pattern in ["src", "lib", "app"]:
-                if (project_root / pattern).exists():
-                    code.append(f"{pattern}/**/*.py")
-            if not code:
-                code = ["**/*.py"]
-            
             # Create config with auto-detected paths
             config_data = {
                 "project_root": "..",
@@ -126,7 +155,7 @@ def setup_rag_server():
                 "cloud_docs": docs,
                 "local_docs": [],
                 "decision_log_path": "docs/decisions/",
-                "code_paths": code[:3],  # Limit to 3
+                "code_paths": code[:5],  # Limit to 5
                 "embedding_models": {
                     "doc": "sentence-transformers/all-MiniLM-L6-v2",
                     "code": "microsoft/codebert-base",
@@ -152,10 +181,21 @@ def setup_rag_server():
             with open(mcp_config, 'w') as f:
                 json.dump(config_data, f, indent=2)
             print(f"[OK] Created {mcp_config} with auto-detected paths")
-            print(f"     Detected docs: {docs}")
-            print(f"     Detected code: {code[:3]}")
+        
+        print(f"     Detected docs: {docs}")
+        print(f"     Detected code: {code[:5]}")
+        print(f"     [NOTE] Review and adjust paths in {mcp_config} if needed")
     else:
         print(f"[OK] {mcp_config} already exists")
+        print(f"     Current paths:")
+        try:
+            with open(mcp_config, 'r') as f:
+                existing_config = json.load(f)
+            print(f"       Docs: {existing_config.get('cloud_docs', [])}")
+            print(f"       Code: {existing_config.get('code_paths', [])}")
+            print(f"     [TIP] If paths are wrong, update them manually or delete {mcp_config} and run setup again")
+        except:
+            pass
     print()
     
     # Step 5: Setup Cursor (optional)
