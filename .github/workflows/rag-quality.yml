@@ -1,0 +1,41 @@
+name: RAG Quality Check
+
+on:
+  pull_request:
+    paths:
+      - 'LinkedIn/mcp-server/**'
+      - 'LinkedIn/mcp-config.json'
+      - '.github/workflows/rag-quality.yml'
+
+jobs:
+  rag-quality:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          cd LinkedIn/mcp-server
+          pip install -q -r requirements.txt
+      
+      - name: Verify setup
+        run: |
+          cd LinkedIn/mcp-server
+          python verify_setup.py
+      
+      - name: Test RAG system
+        run: |
+          cd LinkedIn/mcp-server
+          python test_rag_system.py
+      
+      - name: Dry-run indexing
+        run: |
+          cd LinkedIn/mcp-server
+          python index_all.py
+
