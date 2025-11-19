@@ -203,12 +203,16 @@ def load_config() -> Config:
     if not qdrant_url or not qdrant_api_key:
         if env_path.exists():
             load_dotenv(env_path)
+            qdrant_url = os.getenv("QDRANT_CLOUD_URL") or qdrant_url
+            qdrant_api_key = os.getenv("QDRANT_API_KEY") or qdrant_api_key
         else:
-            raise FileNotFoundError(
-                f"Missing Qdrant configuration. Create either:\n"
-                f"  1. qdrant.config.json at {qdrant_config_path} (recommended - simpler)\n"
-                f"  2. .env.qdrant at {env_path}\n"
-                f"  Or set MCP_ENV_FILE environment variable."
+            # Don't raise error here - let mcp-config.json handle it
+            # But set env vars to None so resolve_env can provide better error
+            logger.warning(
+                f"Qdrant config not found. Options:\n"
+                f"  1. Create qdrant.config.json at {qdrant_config_path} (recommended)\n"
+                f"  2. Create .env.qdrant at {env_path}\n"
+                f"  3. Or set values directly in mcp-config.json"
             )
     
     # 6. Load mcp-config.json
@@ -219,9 +223,17 @@ def load_config() -> Config:
     def resolve_env(value: Any) -> Any:
         if isinstance(value, str) and value.startswith("env:"):
             env_var = value[4:]
+            # Try to get from environment (from .env.qdrant or system env)
             env_value = os.getenv(env_var)
             if env_value is None:
-                raise ValueError(f"{env_var} not found in .env.qdrant (loaded from {env_path})")
+                # Provide helpful error message
+                raise ValueError(
+                    f"Environment variable '{env_var}' not found.\n"
+                    f"Options to fix:\n"
+                    f"  1. Set environment variable: export {env_var}=your-value\n"
+                    f"  2. Create .env.qdrant file with: {env_var}=your-value\n"
+                    f"  3. Or edit qdrant.config.json and replace 'env:{env_var}' with the actual value directly"
+                )
             return env_value
         elif isinstance(value, dict):
             return {k: resolve_env(v) for k, v in value.items()}

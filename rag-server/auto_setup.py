@@ -65,7 +65,7 @@ def setup_rag_server():
             shutil.copy(example, qdrant_config)
             print(f"[OK] Created {qdrant_config} from example")
         else:
-            # Create minimal config
+            # Create minimal config with direct values (not env: references)
             with open(qdrant_config, 'w') as f:
                 json.dump({
                     "url": "https://your-cluster.qdrant.io:6333",
@@ -74,6 +74,7 @@ def setup_rag_server():
                 }, f, indent=2)
             print(f"[OK] Created {qdrant_config} with default values")
         print("     [ACTION REQUIRED] Edit this file with your Qdrant credentials")
+        print("     Replace 'your-cluster.qdrant.io' and 'your-api-key-here' with actual values")
     else:
         print(f"[OK] {qdrant_config} already exists")
     print()
@@ -111,8 +112,8 @@ def setup_rag_server():
             config_data = {
                 "project_root": "..",
                 "cloud_qdrant": {
-                    "url": "env:QDRANT_CLOUD_URL",
-                    "api_key": "env:QDRANT_API_KEY",
+                    "url": "https://your-cluster.qdrant.io:6333",
+                    "api_key": "your-api-key-here",
                     "collection": "mcp-rag",
                     "timeout": 30,
                     "retry_attempts": 3

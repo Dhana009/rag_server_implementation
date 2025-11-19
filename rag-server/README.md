@@ -38,12 +38,26 @@ This will automatically:
    ```
 
 2. **Configure Qdrant:**
+   
+   **Option A: Use qdrant.config.json (Recommended)**
    Edit `rag-server/qdrant.config.json` with your credentials:
    ```json
    {
      "url": "https://your-cluster.qdrant.io:6333",
      "api_key": "your-api-key-here",
      "collection": "mcp-rag"
+   }
+   ```
+   
+   **Option B: Set values directly in mcp-config.json**
+   Edit `rag-server/mcp-config.json` and replace the placeholder values in `cloud_qdrant` section:
+   ```json
+   {
+     "cloud_qdrant": {
+       "url": "https://your-cluster.qdrant.io:6333",
+       "api_key": "your-api-key-here",
+       ...
+     }
    }
    ```
    
