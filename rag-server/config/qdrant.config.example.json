@@ -1,0 +1,6 @@
+{
+  "url": "https://your-cluster.qdrant.io:6333",
+  "api_key": "your-api-key-here",
+  "collection": "mcp-rag"
+}
+

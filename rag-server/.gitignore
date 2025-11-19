@@ -1,0 +1,50 @@
+# Qdrant Credentials - DO NOT COMMIT
+.env.qdrant
+qdrant.config.json
+.env
+!.env.example
+!qdrant.config.example.json
+
+# Project Configuration - DO NOT COMMIT (contains sensitive paths)
+mcp-config.json
+!mcp-config.example.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Qdrant Local Data
+qdrant_data/
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+cursor-settings.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+rag-server.log
+mcp-server.log
+
+# Temporary files
+*.tmp
+*.bak
+*~
+
