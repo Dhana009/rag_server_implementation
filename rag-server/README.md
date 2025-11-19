@@ -37,29 +37,16 @@ This will automatically:
    pip install -r requirements.txt
    ```
 
-2. **Configure Qdrant:**
+2. **Configure Qdrant credentials:**
    
-   **Option A: Use qdrant.config.json (Recommended)**
-   Edit `rag-server/qdrant.config.json` with your credentials:
-   ```json
-   {
-     "url": "https://your-cluster.qdrant.io:6333",
-     "api_key": "your-api-key-here",
-     "collection": "mcp-rag"
-   }
+   Edit `rag-server/.env` file with your Qdrant credentials:
+   ```bash
+   QDRANT_CLOUD_URL=https://your-cluster.qdrant.io:6333
+   QDRANT_API_KEY=your-api-key-here
+   QDRANT_COLLECTION=mcp-rag
    ```
    
-   **Option B: Set values directly in mcp-config.json**
-   Edit `rag-server/mcp-config.json` and replace the placeholder values in `cloud_qdrant` section:
-   ```json
-   {
-     "cloud_qdrant": {
-       "url": "https://your-cluster.qdrant.io:6333",
-       "api_key": "your-api-key-here",
-       ...
-     }
-   }
-   ```
+   **Note**: The `.env` file is automatically created by `auto_setup.py`. If it doesn't exist, copy `.env.example` to `.env` and fill in your credentials.
    
 3. **Configure project:**
    Edit `rag-server/mcp-config.json` to specify what to index:
@@ -116,7 +103,7 @@ pip install -r requirements.txt
 
 #### 3. Get Qdrant Credentials
 
-**Option A: Qdrant Cloud (Recommended)**
+**Qdrant Cloud Configuration (Required)**
 1. Sign up at [Qdrant Cloud](https://cloud.qdrant.io/)
 2. Create a free cluster
 3. Copy your cluster URL and API key
@@ -128,15 +115,15 @@ pip install -r requirements.txt
 
 #### 4. Configure Qdrant Connection
 
-Create or edit `rag-server/qdrant.config.json`:
+Create or edit `rag-server/.env` file:
 
-```json
-{
-  "url": "https://your-cluster.qdrant.io:6333",
-  "api_key": "your-api-key-here",
-  "collection": "mcp-rag"
-}
+```bash
+QDRANT_CLOUD_URL=https://your-cluster.qdrant.io:6333
+QDRANT_API_KEY=your-api-key-here
+QDRANT_COLLECTION=mcp-rag
 ```
+
+**Note**: The `.env` file is automatically created by `auto_setup.py`. If it doesn't exist, copy `.env.example` to `.env` and fill in your credentials.
 
 #### 5. Configure Project Paths
 
@@ -214,9 +201,9 @@ You should see:
 | File | Location | Purpose |
 |------|----------|---------|
 | `mcp-config.json` | `rag-server/` | Project configuration (paths, models, retrieval settings) |
-| `qdrant.config.json` | `rag-server/` | Database connection (URL, API key, collection) |
+| `.env` | `rag-server/` | Qdrant credentials (URL, API key, collection) |
 
-Both files are located in `rag-server/` for easy management.
+Both files are located in `rag-server/` for easy management. The `.env` file is automatically created by `auto_setup.py`.
 
 ### Environment Variables
 
@@ -463,7 +450,8 @@ rag-server/
 ├── config.py                   # Configuration management
 ├── setup.py                    # Setup verification
 ├── auto_setup.py               # Automated setup script
-├── qdrant.config.json          # Database config (user-created)
+├── .env                         # Qdrant credentials (user-created, not committed)
+├── .env.example                 # Example .env file
 ├── mcp-config.json             # Project config (user-created)
 ├── requirements.txt            # Python dependencies
 │

@@ -69,7 +69,7 @@ class Config(BaseModel):
     
     # Runtime configuration (not from JSON)
     project_root: Optional[Path] = None  # Will be set during load_config
-    rag_server_dir: Optional[Path] = None  # Will be set during load_config (renamed from mcp_server_dir for clarity)
+    rag_server_dir: Optional[Path] = None  # Will be set during load_config
 
 def _find_config_file(start_path: Path) -> Path:
     """
@@ -116,12 +116,15 @@ def _find_config_file(start_path: Path) -> Path:
 
 def load_config() -> Config:
     """
-    Load configuration from mcp-config.json and .env.qdrant
+    Load configuration from mcp-config.json and .env file
+    
+    Qdrant credentials are ALWAYS loaded from .env file (rag-server/.env)
+    Project settings (paths, models, etc.) are loaded from mcp-config.json
     
     Configuration paths can be set via environment variables:
     - MCP_PROJECT_ROOT: Root directory where mcp-config.json is located (default: auto-detect)
     - MCP_CONFIG_FILE: Full path to config JSON (default: {PROJECT_ROOT}/mcp-config.json)
-    - MCP_ENV_FILE: Full path to .env.qdrant (default: {MCP_SERVER_DIR}/.env.qdrant)
+    - MCP_ENV_FILE: Full path to .env file (default: {RAG_SERVER_DIR}/.env)
     
     Returns: Validated Config object with project_root and rag_server_dir set
     
@@ -133,14 +136,53 @@ def load_config() -> Config:
     # 1. Determine rag-server directory (where this file is located)
     rag_server_dir = Path(__file__).parent.resolve()
     
-    # 2. Find config file (prefer rag-server/ directory)
+    # 2. Load .env file FIRST (for Qdrant credentials)
+    env_file = os.getenv("MCP_ENV_FILE")
+    if env_file:
+        env_path = Path(env_file).resolve()
+    else:
+        env_path = rag_server_dir / ".env"
+    
+    if not env_path.exists():
+        raise FileNotFoundError(
+            f"Missing .env file at {env_path}\n"
+            f"Create .env file with:\n"
+            f"  QDRANT_CLOUD_URL=https://your-cluster.qdrant.io:6333\n"
+            f"  QDRANT_API_KEY=your-api-key-here\n"
+            f"  QDRANT_COLLECTION=mcp-rag\n"
+            f"\nOr set MCP_ENV_FILE environment variable to point to your .env file."
+        )
+    
+    # Load environment variables from .env file
+    load_dotenv(env_path)
+    
+    # Get Qdrant credentials from environment
+    qdrant_url = os.getenv("QDRANT_CLOUD_URL")
+    qdrant_api_key = os.getenv("QDRANT_API_KEY")
+    qdrant_collection = os.getenv("QDRANT_COLLECTION", "mcp-rag")
+    
+    if not qdrant_url or not qdrant_api_key:
+        missing = []
+        if not qdrant_url:
+            missing.append("QDRANT_CLOUD_URL")
+        if not qdrant_api_key:
+            missing.append("QDRANT_API_KEY")
+        raise ValueError(
+            f"Missing required environment variables in {env_path}: {', '.join(missing)}\n"
+            f"Add them to your .env file:\n"
+            f"  QDRANT_CLOUD_URL=https://your-cluster.qdrant.io:6333\n"
+            f"  QDRANT_API_KEY=your-api-key-here\n"
+            f"  QDRANT_COLLECTION=mcp-rag  (optional, defaults to 'mcp-rag')"
+        )
+    
+    # 3. Find and load mcp-config.json (for project settings)
     config_file = os.getenv("MCP_CONFIG_FILE")
     if config_file:
         config_path = Path(config_file).resolve()
     else:
         config_path = _find_config_file(rag_server_dir)
     
-    # 3. Determine project root
+    # 4. Determine project root
     project_root = os.getenv("MCP_PROJECT_ROOT")
     if project_root:
         project_root = Path(project_root).resolve()
@@ -157,7 +199,7 @@ def load_config() -> Config:
             f"Set MCP_CONFIG_FILE or create mcp-config.json in rag-server/ directory."
         )
     
-    # 4. Load project config JSON first (to get project_root if specified)
+    # 5. Load project config JSON
     with open(config_path, 'r', encoding='utf-8') as f:
         config_data = json.load(f)
     
@@ -172,83 +214,37 @@ def load_config() -> Config:
         if not project_root.exists():
             raise FileNotFoundError(f"project_root in config points to non-existent directory: {project_root}")
     
-    # 5. Load Qdrant configuration (try qdrant.config.json first, then .env.qdrant)
-    # Check in rag-server dir first, then config/ folder
-    qdrant_config_path = rag_server_dir / "qdrant.config.json"
-    if not qdrant_config_path.exists():
-        qdrant_config_path = rag_server_dir / "config" / "qdrant.config.json"
-    env_file = os.getenv("MCP_ENV_FILE")
-    if env_file:
-        env_path = Path(env_file).resolve()
-    else:
-        env_path = rag_server_dir / ".env.qdrant"
+    # 6. Merge Qdrant config from .env with project config
+    # Remove cloud_qdrant from config_data if it exists (we use .env instead)
+    if "cloud_qdrant" in config_data:
+        logger.warning("cloud_qdrant in mcp-config.json is ignored. Using values from .env file instead.")
+        del config_data["cloud_qdrant"]
     
-    qdrant_url = None
-    qdrant_api_key = None
-    
-    # Try qdrant.config.json first (simpler, direct config)
-    if qdrant_config_path.exists():
-        try:
-            with open(qdrant_config_path, 'r', encoding='utf-8') as f:
-                qdrant_config = json.load(f)
-            qdrant_url = qdrant_config.get("url")
-            qdrant_api_key = qdrant_config.get("api_key")
-            if qdrant_url and qdrant_api_key:
-                os.environ["QDRANT_CLOUD_URL"] = qdrant_url
-                os.environ["QDRANT_API_KEY"] = qdrant_api_key
-        except Exception as e:
-            logger.warning(f"Failed to load qdrant.config.json: {e}")
-    
-    # Fallback to .env.qdrant if qdrant.config.json not found or incomplete
-    if not qdrant_url or not qdrant_api_key:
-        if env_path.exists():
-            load_dotenv(env_path)
-            qdrant_url = os.getenv("QDRANT_CLOUD_URL") or qdrant_url
-            qdrant_api_key = os.getenv("QDRANT_API_KEY") or qdrant_api_key
-        else:
-            # Don't raise error here - let mcp-config.json handle it
-            # But set env vars to None so resolve_env can provide better error
-            logger.warning(
-                f"Qdrant config not found. Options:\n"
-                f"  1. Create qdrant.config.json at {qdrant_config_path} (recommended)\n"
-                f"  2. Create .env.qdrant at {env_path}\n"
-                f"  3. Or set values directly in mcp-config.json"
-            )
-    
-    # 6. Load mcp-config.json
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config_data = json.load(f)
-    
-    # 6. Replace env:VAR_NAME with actual values
-    def resolve_env(value: Any) -> Any:
-        if isinstance(value, str) and value.startswith("env:"):
-            env_var = value[4:]
-            # Try to get from environment (from .env.qdrant or system env)
-            env_value = os.getenv(env_var)
-            if env_value is None:
-                # Provide helpful error message
-                raise ValueError(
-                    f"Environment variable '{env_var}' not found.\n"
-                    f"Options to fix:\n"
-                    f"  1. Set environment variable: export {env_var}=your-value\n"
-                    f"  2. Create .env.qdrant file with: {env_var}=your-value\n"
-                    f"  3. Or edit qdrant.config.json and replace 'env:{env_var}' with the actual value directly"
-                )
-            return env_value
-        elif isinstance(value, dict):
-            return {k: resolve_env(v) for k, v in value.items()}
-        elif isinstance(value, list):
-            return [resolve_env(item) for item in value]
-        return value
-    
-    config_data = resolve_env(config_data)
+    # Add Qdrant config from .env
+    config_data["cloud_qdrant"] = {
+        "url": qdrant_url,
+        "api_key": qdrant_api_key,
+        "collection": qdrant_collection,
+        "timeout": 30,
+        "retry_attempts": 3
+    }
     
     # 7. Validate and create Config object
-    config = Config(**config_data)
+    try:
+        config = Config(**config_data)
+    except ValidationError as e:
+        error_details = []
+        for error in e.errors():
+            field = " -> ".join(str(x) for x in error["loc"])
+            error_details.append(f"  {field}: {error['msg']}")
+        raise ValidationError(
+            f"Invalid configuration in {config_path}:\n" + "\n".join(error_details)
+        ) from e
     
     # 8. Set runtime paths
     config.project_root = project_root
     config.rag_server_dir = rag_server_dir
     
+    logger.info(f"✅ Config loaded: project_root={project_root}, qdrant_collection={qdrant_collection}")
+    
     return config
-

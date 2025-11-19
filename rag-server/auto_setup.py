@@ -56,27 +56,28 @@ def setup_rag_server():
         print(f"[WARNING] requirements.txt not found at {requirements_file}")
     print()
     
-    # Step 3: Create Qdrant config
+    # Step 3: Create .env file for Qdrant credentials
     print("[3/6] Setting up Qdrant configuration...")
-    qdrant_config = rag_server_dir / "qdrant.config.json"
-    if not qdrant_config.exists():
-        example = config_dir / "qdrant.config.example.json"
-        if example.exists():
-            shutil.copy(example, qdrant_config)
-            print(f"[OK] Created {qdrant_config} from example")
+    env_file = rag_server_dir / ".env"
+    env_example = rag_server_dir / ".env.example"
+    
+    if not env_file.exists():
+        if env_example.exists():
+            shutil.copy(env_example, env_file)
+            print(f"[OK] Created {env_file} from example")
         else:
-            # Create minimal config with direct values (not env: references)
-            with open(qdrant_config, 'w') as f:
-                json.dump({
-                    "url": "https://your-cluster.qdrant.io:6333",
-                    "api_key": "your-api-key-here",
-                    "collection": "mcp-rag"
-                }, f, indent=2)
-            print(f"[OK] Created {qdrant_config} with default values")
-        print("     [ACTION REQUIRED] Edit this file with your Qdrant credentials")
+            # Create .env file with template
+            with open(env_file, 'w') as f:
+                f.write("# Qdrant Cloud Configuration\n")
+                f.write("# Fill in your actual credentials\n\n")
+                f.write("QDRANT_CLOUD_URL=https://your-cluster.qdrant.io:6333\n")
+                f.write("QDRANT_API_KEY=your-api-key-here\n")
+                f.write("QDRANT_COLLECTION=mcp-rag\n")
+            print(f"[OK] Created {env_file} with template")
+        print("     [ACTION REQUIRED] Edit .env file with your Qdrant credentials")
         print("     Replace 'your-cluster.qdrant.io' and 'your-api-key-here' with actual values")
     else:
-        print(f"[OK] {qdrant_config} already exists")
+        print(f"[OK] {env_file} already exists")
     print()
     
     # Step 4: Create project config
@@ -130,23 +131,18 @@ def setup_rag_server():
             # Load example and update with detected paths
             with open(example, 'r') as f:
                 config_data = json.load(f)
-            # Override with auto-detected paths
+            # Override with auto-detected paths (remove cloud_qdrant if present - comes from .env)
+            if "cloud_qdrant" in config_data:
+                del config_data["cloud_qdrant"]
             config_data["cloud_docs"] = docs
             config_data["code_paths"] = code[:5]  # Limit to 5
             with open(mcp_config, 'w') as f:
                 json.dump(config_data, f, indent=2)
             print(f"[OK] Created {mcp_config} from example with auto-detected paths")
         else:
-            # Create config with auto-detected paths
+            # Create config with auto-detected paths (NO cloud_qdrant - comes from .env)
             config_data = {
                 "project_root": "..",
-                "cloud_qdrant": {
-                    "url": "https://your-cluster.qdrant.io:6333",
-                    "api_key": "your-api-key-here",
-                    "collection": "mcp-rag",
-                    "timeout": 30,
-                    "retry_attempts": 3
-                },
                 "local_qdrant": {
                     "path": "./qdrant_data",
                     "collection": "mcp-rag-local",
@@ -273,7 +269,7 @@ def setup_rag_server():
     print("=" * 60)
     print()
     print("Next steps:")
-    print("  1. Edit rag-server/qdrant.config.json with your Qdrant credentials")
+    print("  1. Edit rag-server/.env with your Qdrant credentials")
     print("  2. Review rag-server/mcp-config.json and adjust paths if needed")
     print("  3. Run: cd rag-server && python rag_cli.py index")
     print("  4. Restart Cursor IDE if configured")

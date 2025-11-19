@@ -1,12 +1,5 @@
 {
   "project_root": "..",
-  "cloud_qdrant": {
-    "url": "https://your-cluster.qdrant.io:6333",
-    "api_key": "your-api-key-here",
-    "collection": "my-project-core",
-    "timeout": 30,
-    "retry_attempts": 3
-  },
   "local_qdrant": {
     "path": "./qdrant_data",
     "collection": "my-project-local",
