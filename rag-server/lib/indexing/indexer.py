@@ -160,28 +160,46 @@ def index_all_documents(vector_store: HybridVectorStore, config: Config) -> Dict
     stats = {"cloud": 0, "local": 0, "errors": 0}
     
     # Index cloud docs
+    logger.info(f"   Searching for docs in: {base_path}")
+    logger.info(f"   Patterns: {config.cloud_docs}")
+    files_found = []
     for pattern in config.cloud_docs:
-        for file_path in base_path.glob(pattern):
-            if file_path.is_file() and file_path.suffix == '.md':
-                try:
-                    rel_path = str(file_path.relative_to(base_path))
-                    logger.info(f"\n{'='*70}")
-                    logger.info(f"📝 Indexing: {rel_path}")
-                    logger.info(f"{'='*70}")
-                    
-                    content = file_path.read_text(encoding='utf-8')
-                    chunks = chunk_markdown(content, rel_path, 
-                                           chunk_size=config.chunk_size, 
-                                           overlap=config.chunk_overlap)
-                    logger.info(f"   Generated {len(chunks)} chunks from file")
-                    
-                    if vector_store.index_doc(rel_path, "cloud", chunks):
-                        stats["cloud"] += len(chunks)
-                    else:
-                        stats["errors"] += 1
-                except Exception as e:
-                    logger.error(f"Failed to index {file_path}: {e}")
+        pattern_path = base_path / pattern if not Path(pattern).is_absolute() else Path(pattern)
+        logger.debug(f"   Trying pattern: {pattern} (resolved: {pattern_path})")
+        matched = list(base_path.glob(pattern))
+        if matched:
+            logger.info(f"   Found {len(matched)} files matching '{pattern}'")
+            files_found.extend(matched)
+        else:
+            logger.warning(f"   No files found matching pattern: '{pattern}'")
+    
+    if not files_found:
+        logger.warning(f"   ⚠️  No documentation files found! Check your config.cloud_docs paths.")
+        logger.warning(f"   Project root: {base_path}")
+        logger.warning(f"   Patterns tried: {config.cloud_docs}")
+        logger.warning(f"   Tip: Use 'python rag_cli.py stats' to see what's configured")
+    
+    for file_path in files_found:
+        if file_path.is_file() and file_path.suffix == '.md':
+            try:
+                rel_path = str(file_path.relative_to(base_path))
+                logger.info(f"\n{'='*70}")
+                logger.info(f"📝 Indexing: {rel_path}")
+                logger.info(f"{'='*70}")
+                
+                content = file_path.read_text(encoding='utf-8')
+                chunks = chunk_markdown(content, rel_path, 
+                                       chunk_size=config.chunk_size, 
+                                       overlap=config.chunk_overlap)
+                logger.info(f"   Generated {len(chunks)} chunks from file")
+                
+                if vector_store.index_doc(rel_path, "cloud", chunks):
+                    stats["cloud"] += len(chunks)
+                else:
                     stats["errors"] += 1
+            except Exception as e:
+                logger.error(f"Failed to index {file_path}: {e}")
+                stats["errors"] += 1
     
     # Index local docs (mirror cloud + local-only)
     # First mirror all cloud docs to local

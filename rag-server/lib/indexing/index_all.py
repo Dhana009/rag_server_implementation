@@ -94,11 +94,19 @@ def main():
 
                 # Index each code path
                 base_path = config.project_root
+                logger.info(f"   Searching for code in: {base_path}")
+                logger.info(f"   Patterns: {config.code_paths}")
+                code_files_found = []
                 for code_path in config.code_paths:
                     if code_path.startswith("**") or "*" in code_path:
                         # Glob pattern - expand it relative to project root
                         try:
                             expanded = list(base_path.glob(code_path))
+                            if expanded:
+                                logger.info(f"   Found {len(expanded)} files matching '{code_path}'")
+                                code_files_found.extend(expanded)
+                            else:
+                                logger.warning(f"   No files found matching pattern: '{code_path}'")
                             for path in expanded:
                                 if path.is_file():
                                     try:
@@ -127,6 +135,12 @@ def main():
                             logger.warning(f"Failed to index {code_path}: {e}")
                             code_errors += 1
 
+                if not code_files_found and code_indexed == 0:
+                    logger.warning(f"   ⚠️  No code files found! Check your config.code_paths.")
+                    logger.warning(f"   Project root: {base_path}")
+                    logger.warning(f"   Patterns tried: {config.code_paths}")
+                    logger.warning(f"   Tip: Use 'python rag_cli.py stats' to see what's configured")
+                
                 logger.info(f"   ✅ Code indexed: {code_indexed}")
                 logger.info(f"   ❌ Code errors: {code_errors}")
                 total_indexed += code_indexed
