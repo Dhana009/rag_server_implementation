@@ -28,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from lib.tools.search import search_tool, search_tool_mcp
 from lib.tools.ask import ask_tool, ask_tool_mcp
 from lib.tools.explain import explain_tool, explain_tool_mcp
+from lib.tools.manifest import get_manifest_tool, get_tool_schema_tool, get_manifest_tool_mcp, get_tool_schema_tool_mcp
+from lib.core.tool_manifest import ToolManifest
 
 # Configure logging: INFO to file, WARNING/ERROR to stderr (MCP requires stdout for JSON-RPC only)
 log_file = Path(__file__).parent / "rag-server.log"
@@ -53,12 +55,52 @@ server_name = os.getenv("MCP_SERVER_NAME", "rag-server")
 # Create MCP server
 server = Server(server_name)
 
-# All available tools - Core RAG tools only
+# All available tools - Core RAG tools + Context Engineering tools
 ALL_TOOLS = [
+    # Context Engineering tools (Tier 1 & 2)
+    get_manifest_tool_mcp,
+    get_tool_schema_tool_mcp,
+    # Core RAG tools (Tier 3 - execution)
     search_tool_mcp,
     ask_tool_mcp,
     explain_tool_mcp
 ]
+
+# Register tool schemas in manifest system (Tier 2)
+# This allows on-demand schema loading
+ToolManifest.register_tool_schema(
+    "search",
+    search_tool_mcp.description,
+    search_tool_mcp.inputSchema,
+    examples=[
+        {"query": "selector policy", "content_type": "doc"},
+        {"query": "login function", "content_type": "code", "language": "python"},
+        {"query": "authentication flow", "top_k": 5}
+    ]
+)
+
+ToolManifest.register_tool_schema(
+    "ask",
+    ask_tool_mcp.description,
+    ask_tool_mcp.inputSchema,
+    examples=[
+        {"question": "What is the selector policy?", "context": ""},
+        {"question": "Should I use aria-label or aria-labelledby?", "context": "accessibility question"},
+        {"question": "What's the difference between v1 and v2 UI?"}
+    ]
+)
+
+ToolManifest.register_tool_schema(
+    "explain",
+    explain_tool_mcp.description,
+    explain_tool_mcp.inputSchema,
+    examples=[
+        {"topic": "phase-1 flows"},
+        {"topic": "selector policy"},
+        {"topic": "architecture rules"},
+        {"topic": "authentication flow"}
+    ]
+)
 
 # Register tools using decorator
 @server.list_tools()
@@ -71,7 +113,15 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict) -> dict:
     """Handle tool calls"""
     logger.info(f"Tool call received: {name} with args: {arguments}")
-    if name == "search":
+    
+    # Context Engineering tools (Tier 1 & 2)
+    if name == "get_manifest":
+        result = get_manifest_tool()
+    elif name == "get_tool_schema":
+        tool_name = arguments.get("tool_name", "")
+        result = get_tool_schema_tool(tool_name)
+    # Core RAG tools (Tier 3 - execution)
+    elif name == "search":
         query = arguments.get("query", "")
         content_type = arguments.get("content_type", "all")
         language = arguments.get("language", "all")
@@ -103,8 +153,19 @@ async def main():
         logger.info(f"Server name: {server.name}")
         logger.info(f"Available tools: {len(ALL_TOOLS)}")
         
+        # Validate tool briefs are within token limits
+        validation = ToolManifest.validate_briefs()
+        logger.info("Tool manifest validation:")
+        for tool_name, result in validation.items():
+            status = "✅" if result["within_limit"] else "⚠️"
+            logger.info(f"  {status} {tool_name}: {result['tokens']} tokens")
+        
         async with stdio_server() as (read_stream, write_stream):
             logger.info("Stdio server started, waiting for connections...")
+            logger.info("Context Engineering: Three-tier system enabled")
+            logger.info("  Tier 1: get_manifest (lightweight briefs)")
+            logger.info("  Tier 2: get_tool_schema (on-demand schemas)")
+            logger.info("  Tier 3: Tool execution (search, ask, explain)")
             await server.run(
                 read_stream,
                 write_stream,

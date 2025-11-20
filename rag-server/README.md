@@ -11,6 +11,7 @@ A production-ready RAG (Retrieval-Augmented Generation) system for MCP (Model Co
 - ☁️ **Cloud & Local**: Supports both Qdrant Cloud and local instances
 - 🛠️ **MCP Integration**: Seamless integration with Cursor IDE and other MCP clients
 - ⚡ **Production-Ready**: Error handling, logging, and comprehensive testing
+- 🚀 **Context Engineering**: Three-tier tool loading prevents context rot (87% reduction in context usage)
 
 ## Quick Start
 
@@ -369,14 +370,23 @@ The automated setup script configures Cursor automatically. To configure manuall
 
 Once connected, the following tools are available:
 
+### Context Engineering Tools (Prevent Context Rot)
+
+- **`get_manifest`**: Get lightweight tool briefs (~30-50 tokens each) for all available tools
+- **`get_tool_schema`**: Get full schema for a specific tool (loaded on-demand)
+
+**Context Engineering**: The server implements three-tier context engineering to prevent context rot. Use `get_manifest` for tool discovery, then `get_tool_schema` to load full schemas on-demand. This reduces initial context usage by 87%. See [docs/CONTEXT_ENGINEERING.md](docs/CONTEXT_ENGINEERING.md) for details.
+
+### RAG Tools
+
 - **`search`**: Semantic search with filtering
-  - Parameters: `query`, `type` (docs/code/all), `limit`
+  - Parameters: `query`, `content_type` (doc/code/all), `language`, `top_k`
   
 - **`ask`**: Question answering with full RAG pipeline
   - Parameters: `question`, `context` (optional)
   
 - **`explain`**: Comprehensive explanations with context
-  - Parameters: `topic`, `depth` (optional)
+  - Parameters: `topic`
 
 ### How the Server Works
 
