@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-MCP Server - RAG System
-Provides intelligent access to project documentation and code via RAG (Retrieval-Augmented Generation)
+MCP Server - QUADRANTDB Vector Database Tools
 
-Core Tools:
-- search: Semantic search with filtering
-- ask: Question answering with full RAG pipeline
-- explain: Comprehensive explanations with context
+Provides 6 core vector database operations:
+- add_vector: Store new data with embeddings + metadata
+- get_vector: Retrieve a stored vector item by ID
+- update_vector: Update text/metadata for an existing vector entry
+- delete_vector: Delete a stored vector entry
+- search_similar: Semantic similarity search using embeddings
+- search_by_metadata: Retrieve items by tags/category/file/error-type, etc.
 """
 
 import logging
@@ -25,10 +27,14 @@ from mcp.types import Tool, ListToolsRequest, ListToolsResult, CallToolRequest, 
 
 # Add rag-server to path (after mcp imports to avoid shadowing)
 sys.path.insert(0, str(Path(__file__).parent))
-from lib.tools.search import search_tool, search_tool_mcp
-from lib.tools.ask import ask_tool, ask_tool_mcp
-from lib.tools.explain import explain_tool, explain_tool_mcp
-from lib.tools.manifest import get_manifest_tool, get_tool_schema_tool, get_manifest_tool_mcp, get_tool_schema_tool_mcp
+# Removed: search, ask, explain, get_manifest, get_tool_schema
+# Only QUADRANTDB tools remain
+from lib.tools.vector_crud import (
+    add_vector, get_vector, update_vector, delete_vector,
+    search_similar, search_by_metadata,
+    add_vector_tool_mcp, get_vector_tool_mcp, update_vector_tool_mcp,
+    delete_vector_tool_mcp, search_similar_tool_mcp, search_by_metadata_tool_mcp
+)
 from lib.core.tool_manifest import ToolManifest
 
 # Configure logging: INFO to file, WARNING/ERROR to stderr (MCP requires stdout for JSON-RPC only)
@@ -55,50 +61,77 @@ server_name = os.getenv("MCP_SERVER_NAME", "rag-server")
 # Create MCP server
 server = Server(server_name)
 
-# All available tools - Core RAG tools + Context Engineering tools
+# All available tools - QUADRANTDB tools only (6 tools)
 ALL_TOOLS = [
-    # Context Engineering tools (Tier 1 & 2)
-    get_manifest_tool_mcp,
-    get_tool_schema_tool_mcp,
-    # Core RAG tools (Tier 3 - execution)
-    search_tool_mcp,
-    ask_tool_mcp,
-    explain_tool_mcp
+    # QUADRANTDB tools (vector database)
+    add_vector_tool_mcp,
+    get_vector_tool_mcp,
+    update_vector_tool_mcp,
+    delete_vector_tool_mcp,
+    search_similar_tool_mcp,
+    search_by_metadata_tool_mcp
 ]
 
-# Register tool schemas in manifest system (Tier 2)
-# This allows on-demand schema loading
+# Register QUADRANTDB tool schemas only
 ToolManifest.register_tool_schema(
-    "search",
-    search_tool_mcp.description,
-    search_tool_mcp.inputSchema,
+    "add_vector",
+    add_vector_tool_mcp.description,
+    add_vector_tool_mcp.inputSchema,
     examples=[
-        {"query": "selector policy", "content_type": "doc"},
-        {"query": "login function", "content_type": "code", "language": "python"},
-        {"query": "authentication flow", "top_k": 5}
+        {"content": "Test data for QA", "metadata": {"category": "test", "file_path": "test.md"}},
+        {"content": "Error log entry", "metadata": {"error_type": "timeout", "severity": "high"}},
+        {"vector": [0.1]*384, "metadata": {"custom": "data"}}
     ]
 )
 
 ToolManifest.register_tool_schema(
-    "ask",
-    ask_tool_mcp.description,
-    ask_tool_mcp.inputSchema,
+    "get_vector",
+    get_vector_tool_mcp.description,
+    get_vector_tool_mcp.inputSchema,
     examples=[
-        {"question": "What is the selector policy?", "context": ""},
-        {"question": "Should I use aria-label or aria-labelledby?", "context": "accessibility question"},
-        {"question": "What's the difference between v1 and v2 UI?"}
+        {"vector_id": 12345},
+        {"vector_id": 12345, "include_vector": True}
     ]
 )
 
 ToolManifest.register_tool_schema(
-    "explain",
-    explain_tool_mcp.description,
-    explain_tool_mcp.inputSchema,
+    "update_vector",
+    update_vector_tool_mcp.description,
+    update_vector_tool_mcp.inputSchema,
     examples=[
-        {"topic": "phase-1 flows"},
-        {"topic": "selector policy"},
-        {"topic": "architecture rules"},
-        {"topic": "authentication flow"}
+        {"vector_id": 12345, "content": "Updated content"},
+        {"vector_id": 12345, "metadata": {"category": "updated"}},
+        {"vector_id": 12345, "content": "New content", "metadata": {"updated": True}}
+    ]
+)
+
+ToolManifest.register_tool_schema(
+    "delete_vector",
+    delete_vector_tool_mcp.description,
+    delete_vector_tool_mcp.inputSchema,
+    examples=[
+        {"vector_id": 12345, "soft_delete": True},
+        {"vector_id": 12345, "soft_delete": False}
+    ]
+)
+
+ToolManifest.register_tool_schema(
+    "search_similar",
+    search_similar_tool_mcp.description,
+    search_similar_tool_mcp.inputSchema,
+    examples=[
+        {"query": "authentication error", "top_k": 10},
+        {"query": "test data", "top_k": 5, "filter": {"must": [{"key": "category", "match": "test"}]}}
+    ]
+)
+
+ToolManifest.register_tool_schema(
+    "search_by_metadata",
+    search_by_metadata_tool_mcp.description,
+    search_by_metadata_tool_mcp.inputSchema,
+    examples=[
+        {"filter": {"must": [{"key": "category", "match": "error"}]}, "limit": 10},
+        {"filter": {"must": [{"key": "file_path", "match": "test.py"}]}, "limit": 20, "offset": 0}
     ]
 )
 
@@ -114,26 +147,37 @@ async def call_tool(name: str, arguments: dict) -> dict:
     """Handle tool calls"""
     logger.info(f"Tool call received: {name} with args: {arguments}")
     
-    # Context Engineering tools (Tier 1 & 2)
-    if name == "get_manifest":
-        result = get_manifest_tool()
-    elif name == "get_tool_schema":
-        tool_name = arguments.get("tool_name", "")
-        result = get_tool_schema_tool(tool_name)
-    # Core RAG tools (Tier 3 - execution)
-    elif name == "search":
+    # QUADRANTDB tools (vector database) - only tools available
+    if name == "add_vector":
+        content = arguments.get("content", "")
+        metadata = arguments.get("metadata", {})
+        vector = arguments.get("vector")
+        result = add_vector(content, metadata, vector)
+    elif name == "get_vector":
+        vector_id = arguments.get("vector_id")
+        include_vector = arguments.get("include_vector", False)
+        result = get_vector(vector_id, include_vector)
+    elif name == "update_vector":
+        vector_id = arguments.get("vector_id")
+        content = arguments.get("content")
+        metadata = arguments.get("metadata")
+        vector = arguments.get("vector")
+        result = update_vector(vector_id, content, metadata, vector)
+    elif name == "delete_vector":
+        vector_id = arguments.get("vector_id")
+        soft_delete = arguments.get("soft_delete", False)
+        result = delete_vector(vector_id, soft_delete)
+    elif name == "search_similar":
         query = arguments.get("query", "")
-        content_type = arguments.get("content_type", "all")
-        language = arguments.get("language", "all")
         top_k = arguments.get("top_k", 10)
-        result = search_tool(query, content_type, language, top_k)
-    elif name == "ask":
-        question = arguments.get("question", "")
-        context = arguments.get("context", "")
-        result = ask_tool(question, context)
-    elif name == "explain":
-        topic = arguments.get("topic", "")
-        result = explain_tool(topic)
+        vector = arguments.get("vector")
+        filter_dict = arguments.get("filter")
+        result = search_similar(query, top_k, vector, filter_dict)
+    elif name == "search_by_metadata":
+        filter_dict = arguments.get("filter", {})
+        limit = arguments.get("limit", 10)
+        offset = arguments.get("offset", 0)
+        result = search_by_metadata(filter_dict, limit, offset)
     else:
         raise ValueError(f"Unknown tool: {name}")
     
@@ -162,10 +206,7 @@ async def main():
         
         async with stdio_server() as (read_stream, write_stream):
             logger.info("Stdio server started, waiting for connections...")
-            logger.info("Context Engineering: Three-tier system enabled")
-            logger.info("  Tier 1: get_manifest (lightweight briefs)")
-            logger.info("  Tier 2: get_tool_schema (on-demand schemas)")
-            logger.info("  Tier 3: Tool execution (search, ask, explain)")
+            logger.info("QUADRANTDB Tools: 6 vector database operations available")
             await server.run(
                 read_stream,
                 write_stream,

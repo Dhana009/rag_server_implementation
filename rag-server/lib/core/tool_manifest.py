@@ -38,35 +38,60 @@ class ToolManifest:
     """
     
     # Tier 1: Lightweight briefs (always loaded, ~30-50 tokens each)
+    # Only QUADRANTDB tools remain
     TOOL_BRIEFS: Dict[str, ToolBrief] = {
-        "search": ToolBrief(
-            name="search",
-            brief="Semantic search across docs and code with filters. Returns relevant chunks with citations.",
-            category="search",
+        "add_vector": ToolBrief(
+            name="add_vector",
+            brief="Store new data (text/code/log) with embeddings + metadata. Auto-embeds content. Returns vector ID.",
+            category="vector_database",
             use_cases=[
-                "Find specific information in documentation",
-                "Search code by function or class name",
-                "Filter results by content type or language"
+                "Store test data or logs",
+                "Index custom content"
             ]
         ),
-        "ask": ToolBrief(
-            name="ask",
-            brief="Question-answering with full RAG pipeline. Uses intent classification, reranking, and synthesis.",
-            category="qa",
+        "get_vector": ToolBrief(
+            name="get_vector",
+            brief="Retrieve a stored vector item by ID. Returns vector data with metadata.",
+            category="vector_database",
             use_cases=[
-                "Get answers to specific questions",
-                "Compare different approaches or concepts",
-                "Get clarifications on project details"
+                "Retrieve specific vector",
+                "Inspect vector metadata"
             ]
         ),
-        "explain": ToolBrief(
-            name="explain",
-            brief="Comprehensive explanations with context and rationale. Groups results by document type.",
-            category="explanation",
+        "update_vector": ToolBrief(
+            name="update_vector",
+            brief="Update text/metadata for an existing vector entry. Merges metadata, re-embeds if content changes.",
+            category="vector_database",
             use_cases=[
-                "Understand flows, policies, or architecture",
-                "Get detailed explanations with context",
-                "Learn about system components"
+                "Update vector content",
+                "Modify vector metadata"
+            ]
+        ),
+        "delete_vector": ToolBrief(
+            name="delete_vector",
+            brief="Delete a stored vector entry. Supports soft-delete (mark as deleted) and hard-delete (permanent).",
+            category="vector_database",
+            use_cases=[
+                "Remove outdated vectors",
+                "Clean up test data"
+            ]
+        ),
+        "search_similar": ToolBrief(
+            name="search_similar",
+            brief="Semantic similarity search using embeddings. Returns similar vectors with similarity scores.",
+            category="vector_database",
+            use_cases=[
+                "Find similar content",
+                "Semantic search"
+            ]
+        ),
+        "search_by_metadata": ToolBrief(
+            name="search_by_metadata",
+            brief="Retrieve items by tags/category/file/error-type, etc. Supports pagination.",
+            category="vector_database",
+            use_cases=[
+                "Filter by metadata",
+                "Search by category or tags"
             ]
         )
     }

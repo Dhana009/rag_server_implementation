@@ -98,8 +98,11 @@ get_tool_schema_tool_mcp = Tool(
         "properties": {
             "tool_name": {
                 "type": "string",
-                "description": "Name of the tool to get schema for (e.g., 'search', 'ask', 'explain')",
-                "enum": ["search", "ask", "explain"]
+                "description": "Name of the tool to get schema for",
+                "enum": [
+                    "add_vector", "get_vector", "update_vector", "delete_vector",
+                    "search_similar", "search_by_metadata"
+                ]
             }
         },
         "required": ["tool_name"]
