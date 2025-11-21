@@ -14,9 +14,17 @@ Tests:
 import sys
 import json
 import logging
+import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+
+# Set environment variable for .env file if .env.qdrant exists
+rag_server_dir = Path(__file__).parent
+env_qdrant = rag_server_dir / ".env.qdrant"
+if env_qdrant.exists():
+    os.environ["MCP_ENV_FILE"] = str(env_qdrant)
+    print(f"[INFO] Using environment file: {env_qdrant}")
 
 # Import server to register schemas
 import server
@@ -49,16 +57,16 @@ def test_add_vector():
         
         if data["success"]:
             vector_id = data["data"]["vector_id"]
-            print(f"✅ add_vector with content: SUCCESS")
+            print(f"[OK] add_vector with content: SUCCESS")
             print(f"   Vector ID: {vector_id}")
             return vector_id
         else:
-            print(f"❌ add_vector with content: FAILED")
+            print(f"[FAIL] add_vector with content: FAILED")
             print(f"   Error: {data['errors']}")
             return None
             
     except Exception as e:
-        print(f"❌ add_vector test failed with exception: {e}")
+        print(f"[ERROR] add_vector test failed with exception: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -71,7 +79,7 @@ def test_get_vector(vector_id):
     print("="*60)
     
     if not vector_id:
-        print("⚠️  Skipping get_vector test (no vector_id)")
+        print("[SKIP] Skipping get_vector test (no vector_id)")
         return False
     
     try:
@@ -80,17 +88,17 @@ def test_get_vector(vector_id):
         data = json.loads(result)
         
         if data["success"]:
-            print(f"✅ get_vector (without vector): SUCCESS")
+            print(f"[OK] get_vector (without vector): SUCCESS")
             print(f"   Vector ID: {data['data']['vector_id']}")
             print(f"   Metadata: {data['data']['metadata']}")
             return True
         else:
-            print(f"❌ get_vector: FAILED")
+            print(f"[FAIL] get_vector: FAILED")
             print(f"   Error: {data['errors']}")
             return False
             
     except Exception as e:
-        print(f"❌ get_vector test failed with exception: {e}")
+        print(f"[ERROR] get_vector test failed with exception: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -103,7 +111,7 @@ def test_update_vector(vector_id):
     print("="*60)
     
     if not vector_id:
-        print("⚠️  Skipping update_vector test (no vector_id)")
+        print("[SKIP] Skipping update_vector test (no vector_id)")
         return False
     
     try:
@@ -115,16 +123,16 @@ def test_update_vector(vector_id):
         data = json.loads(result)
         
         if data["success"]:
-            print(f"✅ update_vector: SUCCESS")
+            print(f"[OK] update_vector: SUCCESS")
             print(f"   Updated metadata: {data['data']['metadata']}")
             return True
         else:
-            print(f"❌ update_vector: FAILED")
+            print(f"[FAIL] update_vector: FAILED")
             print(f"   Error: {data['errors']}")
             return False
             
     except Exception as e:
-        print(f"❌ update_vector test failed with exception: {e}")
+        print(f"[ERROR] update_vector test failed with exception: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -146,19 +154,19 @@ def test_search_similar():
         
         if data["success"]:
             count = data["data"]["count"]
-            print(f"✅ search_similar: SUCCESS")
+            print(f"[OK] search_similar: SUCCESS")
             print(f"   Found {count} results")
             if count > 0:
                 print(f"   Top result ID: {data['data']['results'][0]['vector_id']}")
                 print(f"   Top result score: {data['data']['results'][0]['score']:.4f}")
             return True
         else:
-            print(f"❌ search_similar: FAILED")
+            print(f"[FAIL] search_similar: FAILED")
             print(f"   Error: {data['errors']}")
             return False
             
     except Exception as e:
-        print(f"❌ search_similar test failed with exception: {e}")
+        print(f"[ERROR] search_similar test failed with exception: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -180,16 +188,16 @@ def test_search_by_metadata():
         
         if data["success"]:
             count = data["data"]["count"]
-            print(f"✅ search_by_metadata: SUCCESS")
+            print(f"[OK] search_by_metadata: SUCCESS")
             print(f"   Found {count} results with category='test'")
             return True
         else:
-            print(f"❌ search_by_metadata: FAILED")
+            print(f"[FAIL] search_by_metadata: FAILED")
             print(f"   Error: {data['errors']}")
             return False
             
     except Exception as e:
-        print(f"❌ search_by_metadata test failed with exception: {e}")
+        print(f"[ERROR] search_by_metadata test failed with exception: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -202,7 +210,7 @@ def test_delete_vector(vector_id, soft_delete=True):
     print("="*60)
     
     if not vector_id:
-        print("⚠️  Skipping delete_vector test (no vector_id)")
+        print("[SKIP] Skipping delete_vector test (no vector_id)")
         return False
     
     try:
@@ -211,16 +219,16 @@ def test_delete_vector(vector_id, soft_delete=True):
         data = json.loads(result)
         
         if data["success"]:
-            print(f"✅ delete_vector (soft_delete={soft_delete}): SUCCESS")
+            print(f"[OK] delete_vector (soft_delete={soft_delete}): SUCCESS")
             print(f"   Deleted vector ID: {data['data']['vector_id']}")
             return True
         else:
-            print(f"❌ delete_vector: FAILED")
+            print(f"[FAIL] delete_vector: FAILED")
             print(f"   Error: {data['errors']}")
             return False
             
     except Exception as e:
-        print(f"❌ delete_vector test failed with exception: {e}")
+        print(f"[ERROR] delete_vector test failed with exception: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -260,19 +268,19 @@ def run_all_tests():
     
     # Summary
     print("\n" + "="*60)
-    print("📊 Test Summary")
+    print("Test Summary")
     print("="*60)
     
     passed = sum(1 for v in results.values() if v)
     total = len(results)
     
     for test_name, result in results.items():
-        status = "✅ PASS" if result else "❌ FAIL"
+        status = "[PASS]" if result else "[FAIL]"
         print(f"  {status}: {test_name}")
     
-    print(f"\n✅ Passed: {passed}/{total}")
-    print(f"❌ Failed: {total - passed}/{total}")
-    print(f"📈 Success Rate: {passed / total * 100:.1f}%")
+    print(f"\n[PASS] Passed: {passed}/{total}")
+    print(f"[FAIL] Failed: {total - passed}/{total}")
+    print(f"[INFO] Success Rate: {passed / total * 100:.1f}%")
     print("="*60 + "\n")
     
     return passed == total

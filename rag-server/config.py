@@ -19,6 +19,7 @@ class LocalQdrantConfig(BaseModel):
     path: str
     collection: str
     recreate_if_exists: bool = False
+    enabled: bool = False  # Disable local storage by default
 
 class EmbeddingModelsConfig(BaseModel):
     """Embedding models configuration - separate models for docs and code"""

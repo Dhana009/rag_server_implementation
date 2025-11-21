@@ -93,6 +93,15 @@ class ToolManifest:
                 "Filter by metadata",
                 "Search by category or tags"
             ]
+        ),
+        "index_repository": ToolBrief(
+            name="index_repository",
+            brief="Index/update entire repository into Qdrant. Automatically finds and indexes all docs and code. Handles incremental updates.",
+            category="vector_database",
+            use_cases=[
+                "Index external repository",
+                "Update repository index"
+            ]
         )
     }
     

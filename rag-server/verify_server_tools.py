@@ -31,7 +31,8 @@ EXPECTED_QUADRANTDB_TOOLS = [
     "update_vector",
     "delete_vector",
     "search_similar",
-    "search_by_metadata"
+    "search_by_metadata",
+    "index_repository"
 ]
 
 # Old tools that should NOT be present
@@ -108,6 +109,10 @@ try:
     # Check QUADRANTDB tools in manifest
     quadrantdb_in_manifest = [t for t in EXPECTED_QUADRANTDB_TOOLS if t in manifest_tools]
     print(f"[OK] QUADRANTDB tools in manifest: {len(quadrantdb_in_manifest)}/{len(EXPECTED_QUADRANTDB_TOOLS)}")
+    
+    if "index_repository" not in all_tools:
+        print("[FAIL] Missing: index_repository")
+        missing_tools.append("index_repository")
     
     # Final result
     print("\n" + "="*60)

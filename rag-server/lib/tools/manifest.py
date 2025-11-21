@@ -101,7 +101,7 @@ get_tool_schema_tool_mcp = Tool(
                 "description": "Name of the tool to get schema for",
                 "enum": [
                     "add_vector", "get_vector", "update_vector", "delete_vector",
-                    "search_similar", "search_by_metadata"
+                    "search_similar", "search_by_metadata", "index_repository"
                 ]
             }
         },

@@ -3,7 +3,8 @@
   "local_qdrant": {
     "path": "./qdrant_data",
     "collection": "my-project-local",
-    "recreate_if_exists": false
+    "recreate_if_exists": false,
+    "enabled": false
   },
   "cloud_docs": [
     "docs/**/*.md",

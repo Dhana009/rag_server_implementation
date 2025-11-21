@@ -2,13 +2,14 @@
 """
 MCP Server - QUADRANTDB Vector Database Tools
 
-Provides 6 core vector database operations:
+Provides 7 core vector database operations:
 - add_vector: Store new data with embeddings + metadata
 - get_vector: Retrieve a stored vector item by ID
 - update_vector: Update text/metadata for an existing vector entry
 - delete_vector: Delete a stored vector entry
 - search_similar: Semantic similarity search using embeddings
 - search_by_metadata: Retrieve items by tags/category/file/error-type, etc.
+- index_repository: Index/update entire repository into Qdrant
 """
 
 import logging
@@ -19,6 +20,12 @@ from pathlib import Path
 # Suppress tqdm progress bars (they clutter stderr in MCP servers)
 # Set environment variable to disable tqdm output
 os.environ['TQDM_DISABLE'] = '1'
+
+# Set PYTHONHASHSEED=0 for deterministic hashing (required for consistent vector IDs)
+# Without this, hash() produces different results across Python process restarts
+# This ensures same content always generates same vector_id
+if 'PYTHONHASHSEED' not in os.environ:
+    os.environ['PYTHONHASHSEED'] = '0'
 
 # Import mcp BEFORE adding current directory to path (to avoid conflict with local files)
 from mcp.server import Server
@@ -31,9 +38,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Only QUADRANTDB tools remain
 from lib.tools.vector_crud import (
     add_vector, get_vector, update_vector, delete_vector,
-    search_similar, search_by_metadata,
+    search_similar, search_by_metadata, index_repository, delete_all,
     add_vector_tool_mcp, get_vector_tool_mcp, update_vector_tool_mcp,
-    delete_vector_tool_mcp, search_similar_tool_mcp, search_by_metadata_tool_mcp
+    delete_vector_tool_mcp, search_similar_tool_mcp, search_by_metadata_tool_mcp,
+    index_repository_tool_mcp, delete_all_tool_mcp
 )
 from lib.core.tool_manifest import ToolManifest
 
@@ -61,7 +69,7 @@ server_name = os.getenv("MCP_SERVER_NAME", "rag-server")
 # Create MCP server
 server = Server(server_name)
 
-# All available tools - QUADRANTDB tools only (6 tools)
+# All available tools - QUADRANTDB tools (8 tools)
 ALL_TOOLS = [
     # QUADRANTDB tools (vector database)
     add_vector_tool_mcp,
@@ -69,7 +77,9 @@ ALL_TOOLS = [
     update_vector_tool_mcp,
     delete_vector_tool_mcp,
     search_similar_tool_mcp,
-    search_by_metadata_tool_mcp
+    search_by_metadata_tool_mcp,
+    index_repository_tool_mcp,
+    delete_all_tool_mcp
 ]
 
 # Register QUADRANTDB tool schemas only
@@ -135,6 +145,17 @@ ToolManifest.register_tool_schema(
     ]
 )
 
+ToolManifest.register_tool_schema(
+    "index_repository",
+    index_repository_tool_mcp.description,
+    index_repository_tool_mcp.inputSchema,
+    examples=[
+        {"repository_path": "D:/my-project"},
+        {"repository_path": "D:/my-project", "index_docs": True, "index_code": True, "collection": "both"},
+        {"repository_path": "./my-repo", "index_docs": True, "index_code": False, "collection": "cloud"}
+    ]
+)
+
 # Register tools using decorator
 @server.list_tools()
 async def list_tools() -> list[Tool]:
@@ -156,16 +177,22 @@ async def call_tool(name: str, arguments: dict) -> dict:
     elif name == "get_vector":
         vector_id = arguments.get("vector_id")
         include_vector = arguments.get("include_vector", False)
+        # Log what we receive from MCP client
+        logger.debug(f"MCP get_vector received: vector_id={vector_id}, type={type(vector_id).__name__}")
         result = get_vector(vector_id, include_vector)
     elif name == "update_vector":
         vector_id = arguments.get("vector_id")
         content = arguments.get("content")
         metadata = arguments.get("metadata")
         vector = arguments.get("vector")
+        # Log what we receive from MCP client
+        logger.debug(f"MCP update_vector received: vector_id={vector_id}, type={type(vector_id).__name__}")
         result = update_vector(vector_id, content, metadata, vector)
     elif name == "delete_vector":
         vector_id = arguments.get("vector_id")
         soft_delete = arguments.get("soft_delete", False)
+        # Log what we receive from MCP client
+        logger.debug(f"MCP delete_vector received: vector_id={vector_id}, type={type(vector_id).__name__}")
         result = delete_vector(vector_id, soft_delete)
     elif name == "search_similar":
         query = arguments.get("query", "")
@@ -178,6 +205,18 @@ async def call_tool(name: str, arguments: dict) -> dict:
         limit = arguments.get("limit", 10)
         offset = arguments.get("offset", 0)
         result = search_by_metadata(filter_dict, limit, offset)
+    elif name == "index_repository":
+        repository_path = arguments.get("repository_path")
+        index_docs = arguments.get("index_docs", True)
+        index_code = arguments.get("index_code", True)
+        collection = arguments.get("collection", "cloud")
+        doc_patterns = arguments.get("doc_patterns")
+        code_patterns = arguments.get("code_patterns")
+        result = index_repository(repository_path, index_docs, index_code, collection, doc_patterns, code_patterns)
+    elif name == "delete_all":
+        collection = arguments.get("collection", "cloud")
+        confirm = arguments.get("confirm", False)
+        result = delete_all(collection, confirm)
     else:
         raise ValueError(f"Unknown tool: {name}")
     
@@ -206,7 +245,7 @@ async def main():
         
         async with stdio_server() as (read_stream, write_stream):
             logger.info("Stdio server started, waiting for connections...")
-            logger.info("QUADRANTDB Tools: 6 vector database operations available")
+            logger.info("QUADRANTDB Tools: 8 vector database operations available")
             await server.run(
                 read_stream,
                 write_stream,

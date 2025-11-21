@@ -1,12 +1,43 @@
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, NearestQuery, PayloadSchemaType, Filter, FieldCondition, MatchValue
 from sentence_transformers import SentenceTransformer
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# Custom Exception Classes
+class VectorStoreError(Exception):
+    """Base exception for vector store operations"""
+    def __init__(self, code: str, message: str, details: dict = None, suggestions: list = None):
+        self.code = code
+        self.message = message
+        self.details = details or {}
+        self.suggestions = suggestions or []
+        super().__init__(self.message)
+
+
+class ValidationError(VectorStoreError):
+    """Input validation failures"""
+    pass
+
+
+class PointNotFoundError(VectorStoreError):
+    """Point ID not found"""
+    pass
+
+
+class DimensionMismatchError(VectorStoreError):
+    """Vector dimension issues"""
+    pass
+
+
+class BatchLimitExceededError(VectorStoreError):
+    """Batch size too large"""
+    pass
 
 @dataclass
 class SearchResult:
@@ -28,16 +59,23 @@ class HybridVectorStore:
         )
         self.cloud_collection = config.cloud_qdrant.collection
         
-        # Local: Use path (embedded mode)
-        local_path = Path(config.local_qdrant.path)
-        if not local_path.is_absolute():
-            # Relative to rag-server directory
-            base_path = config.rag_server_dir
-            local_path = base_path / local_path
-        local_path.mkdir(parents=True, exist_ok=True)
-        
-        self.local_client = QdrantClient(path=str(local_path))
-        self.local_collection = config.local_qdrant.collection
+        # Local: Use path (embedded mode) - only if enabled
+        self.local_enabled = config.local_qdrant.enabled
+        if self.local_enabled:
+            local_path = Path(config.local_qdrant.path)
+            if not local_path.is_absolute():
+                # Relative to rag-server directory
+                base_path = config.rag_server_dir
+                local_path = base_path / local_path
+            local_path.mkdir(parents=True, exist_ok=True)
+            
+            self.local_client = QdrantClient(path=str(local_path))
+            self.local_collection = config.local_qdrant.collection
+            logger.info(f"Local Qdrant storage enabled at: {local_path}")
+        else:
+            self.local_client = None
+            self.local_collection = None
+            logger.info("Local Qdrant storage is disabled (enabled: false in config)")
         
         # Embedding model (single model for now, future: add CodeBERT support)
         # Using MiniLM-L6-v2 (384-dim) for both docs + code (safe default)
@@ -51,7 +89,8 @@ class HybridVectorStore:
     def _ensure_collections(self):
         """Create collections if they don't exist and ensure payload indexes"""
         self._ensure_collection(self.cloud_client, self.cloud_collection, "cloud")
-        self._ensure_collection(self.local_client, self.local_collection, "local")
+        if self.local_enabled:
+            self._ensure_collection(self.local_client, self.local_collection, "local")
     
     def _ensure_collection(self, client: QdrantClient, collection_name: str, collection_type: str):
         """Create a single collection if it doesn't exist and ensure payload indexes"""
@@ -86,12 +125,18 @@ class HybridVectorStore:
         try:
             # Index fields with proper schema types:
             # - KEYWORD for string fields (file_path, section, language, content_type)
+            # - Common metadata fields used in search_by_metadata (category, error_type, tags, source)
             # - No index needed for is_deleted (boolean) - Qdrant handles this automatically
             index_fields = {
                 "file_path": PayloadSchemaType.KEYWORD,
                 "section": PayloadSchemaType.KEYWORD,
                 "language": PayloadSchemaType.KEYWORD,
                 "content_type": PayloadSchemaType.KEYWORD,
+                # Common metadata fields for CRUD operations
+                "category": PayloadSchemaType.KEYWORD,
+                "error_type": PayloadSchemaType.KEYWORD,
+                "tags": PayloadSchemaType.KEYWORD,
+                "source": PayloadSchemaType.KEYWORD,
                 # is_deleted is boolean - Qdrant will handle filtering without explicit index
             }
             
@@ -138,8 +183,8 @@ class HybridVectorStore:
         except Exception as e:
             logger.warning(f"Cloud search failed: {e}, using local only")
         
-        # If not enough results, search local
-        if len(results) < top_k:
+        # If not enough results, search local (if enabled)
+        if len(results) < top_k and self.local_enabled:
             try:
                 local_response = self.local_client.query_points(
                     collection_name=self.local_collection,
@@ -250,6 +295,11 @@ class HybridVectorStore:
         if collection not in ["cloud", "local"]:
             raise ValueError(f"Invalid collection: {collection}. Must be 'cloud' or 'local'")
         
+        # Check if local storage is enabled when trying to use it
+        if collection == "local" and not self.local_enabled:
+            logger.warning(f"Local storage is disabled. Skipping indexing to local collection for {doc_path}")
+            return False
+        
         client = self.cloud_client if collection == "cloud" else self.local_client
         coll_name = self.cloud_collection if collection == "cloud" else self.local_collection
         
@@ -299,7 +349,8 @@ class HybridVectorStore:
             for chunk in to_update + to_add:
                 try:
                     vector = self.embedder.encode(chunk['content']).tolist()
-                    point_id = abs(hash(f"{doc_path}:{chunk['line_start']}")) % (2**63 - 1)
+                    # Use helper method for consistent ID generation
+                    point_id = self.generate_point_id(chunk['content'], doc_path, chunk['line_start'])
                     payload = {
                         "content": chunk['content'],
                         "file_path": doc_path,
@@ -352,11 +403,15 @@ class HybridVectorStore:
         except Exception as e:
             logger.warning(f"Failed to get cloud stats: {e}")
         
-        try:
-            local_info = self.local_client.get_collection(self.local_collection)
-            stats["local"]["count"] = local_info.points_count
-        except Exception as e:
-            logger.warning(f"Failed to get local stats: {e}")
+        if self.local_enabled:
+            try:
+                local_info = self.local_client.get_collection(self.local_collection)
+                stats["local"]["count"] = local_info.points_count
+            except Exception as e:
+                logger.warning(f"Failed to get local stats: {e}")
+        else:
+            stats["local"]["count"] = 0
+            stats["local"]["enabled"] = False
         
         return stats
 
@@ -377,6 +432,11 @@ class HybridVectorStore:
         """
         if collection not in ["cloud", "local"]:
             raise ValueError(f"Invalid collection: {collection}")
+        
+        # Check if local storage is enabled when trying to use it
+        if collection == "local" and not self.local_enabled:
+            logger.warning(f"Local storage is disabled. Skipping cleanup for local collection")
+            return 0
         
         client = self.cloud_client if collection == "cloud" else self.local_client
         coll_name = self.cloud_collection if collection == "cloud" else self.local_collection
@@ -505,9 +565,9 @@ class HybridVectorStore:
             except Exception as e:
                 logger.warning(f"Cloud hybrid search failed: {e}, falling back to local")
 
-            # Search local collection if needed
+            # Search local collection if needed (and enabled)
             local_results = []
-            if len(cloud_results) < top_k:
+            if len(cloud_results) < top_k and self.local_enabled:
                 try:
                     # No filter in query - filter in Python instead
                     local_response = self.local_client.query_points(
@@ -656,8 +716,8 @@ class HybridVectorStore:
         except Exception as e:
             logger.warning(f"Cloud section retrieval failed for {file_path}:{section}: {e}")
 
-        # Try local if cloud didn't return enough
-        if len(chunks) < 10:
+        # Try local if cloud didn't return enough (and local is enabled)
+        if len(chunks) < 10 and self.local_enabled:
             try:
                 filter_condition = Filter(
                     must=[
@@ -688,4 +748,267 @@ class HybridVectorStore:
 
         logger.debug(f"Retrieved {len(chunks)} chunks from section {section} in {file_path}")
         return chunks
+    
+    # Helper methods for CRUD operations
+    def generate_point_id(self, content: str, file_path: str = "", line_start: int = 0) -> int:
+        """
+        Generate deterministic point ID using hash-based approach.
+        Same input = same ID (prevents duplicates, ensures idempotency).
+        
+        Strategy:
+        - File-based vectors (has file_path + line_start): Use file_path:line_start hash
+        - Standalone vectors (no file_path): Use content hash
+        
+        Args:
+            content: Point content (required for standalone vectors)
+            file_path: File path (optional, for file-based vectors)
+            line_start: Starting line number (optional, for file-based vectors)
+            
+        Returns:
+            Deterministic point ID
+        """
+        # File-based vectors: use file_path + line_start (for indexing operations)
+        if file_path and line_start > 0:
+            return abs(hash(f"{file_path}:{line_start}")) % (2**63 - 1)
+        # Standalone vectors: use content hash (for CRUD operations without file_path)
+        else:
+            # Normalize content for consistent hashing
+            normalized_content = content.encode('utf-8', errors='ignore').decode('utf-8')
+            normalized_content = ' '.join(normalized_content.split())  # Normalize whitespace
+            return abs(hash(normalized_content)) % (2**63 - 1)
+    
+    def create_point_struct(self, point_id: int, vector: List[float], payload: Dict) -> PointStruct:
+        """
+        Helper for creating PointStruct objects with consistent formatting.
+        
+        Args:
+            point_id: Point ID
+            vector: Vector embedding
+            payload: Payload metadata
+            
+        Returns:
+            PointStruct object
+        """
+        return PointStruct(
+            id=point_id,
+            vector=vector,
+            payload=payload
+        )
+    
+    def encode_content(self, content: str) -> List[float]:
+        """
+        Generate embeddings from content with UTF-8 normalization.
+        
+        Args:
+            content: Text content to encode
+            
+        Returns:
+            Vector embedding as list of floats
+        """
+        # Normalize content (UTF-8, whitespace handling)
+        normalized = content.encode('utf-8', errors='ignore').decode('utf-8')
+        normalized = ' '.join(normalized.split())  # Normalize whitespace
+        
+        vector = self.embedder.encode(normalized).tolist()
+        return vector
+    
+    def validate_vector(self, vector: List[float], expected_dim: Optional[int] = None) -> bool:
+        """
+        Comprehensive vector validation: dimension, type, range checks.
+        
+        Args:
+            vector: Vector to validate
+            expected_dim: Expected dimension (uses self.vector_size if None)
+            
+        Returns:
+            True if valid
+            
+        Raises:
+            DimensionMismatchError: If validation fails
+        """
+        if expected_dim is None:
+            expected_dim = self.vector_size
+        
+        # Check type
+        if not isinstance(vector, list):
+            raise DimensionMismatchError(
+                code="INVALID_TYPE",
+                message=f"Vector must be a list, got {type(vector).__name__}",
+                details={"expected": "list", "got": type(vector).__name__},
+                suggestions=["Ensure vector is a list of numbers", "Check input format"]
+            )
+        
+        # Check dimension
+        if len(vector) != expected_dim:
+            raise DimensionMismatchError(
+                code="DIMENSION_MISMATCH",
+                message=f"Vector dimension mismatch: expected {expected_dim}, got {len(vector)}",
+                details={"expected": expected_dim, "got": len(vector)},
+                suggestions=[f"Ensure vector has exactly {expected_dim} dimensions", "Check embedding model configuration"]
+            )
+        
+        # Check all elements are numeric
+        for i, val in enumerate(vector):
+            if not isinstance(val, (int, float)):
+                raise DimensionMismatchError(
+                    code="INVALID_ELEMENT_TYPE",
+                    message=f"Vector element at index {i} is not numeric: {type(val).__name__}",
+                    details={"index": i, "value": val, "type": type(val).__name__},
+                    suggestions=["Ensure all vector elements are numbers", "Check vector format"]
+                )
+        
+        return True
+    
+    def parse_filter(self, filter_dict: Dict) -> Filter:
+        """
+        Convert JSON dict to Qdrant Filter object.
+        Supports must/should/must_not structure.
+        
+        Args:
+            filter_dict: Filter dictionary with must/should/must_not keys
+            
+        Returns:
+            Qdrant Filter object
+        """
+        conditions = []
+        
+        # Handle must conditions
+        if "must" in filter_dict:
+            must_conditions = []
+            for cond in filter_dict["must"]:
+                if "key" in cond and "match" in cond:
+                    must_conditions.append(
+                        FieldCondition(
+                            key=cond["key"],
+                            match=MatchValue(value=cond["match"])
+                        )
+                    )
+            if must_conditions:
+                conditions.extend(must_conditions)
+        
+        # Handle should conditions
+        if "should" in filter_dict:
+            should_conditions = []
+            for cond in filter_dict["should"]:
+                if "key" in cond and "match" in cond:
+                    should_conditions.append(
+                        FieldCondition(
+                            key=cond["key"],
+                            match=MatchValue(value=cond["match"])
+                        )
+                    )
+            if should_conditions:
+                conditions.extend(should_conditions)
+        
+        # Handle must_not conditions
+        if "must_not" in filter_dict:
+            must_not_conditions = []
+            for cond in filter_dict["must_not"]:
+                if "key" in cond and "match" in cond:
+                    must_not_conditions.append(
+                        FieldCondition(
+                            key=cond["key"],
+                            match=MatchValue(value=cond["match"])
+                        )
+                    )
+            if must_not_conditions:
+                conditions.extend(must_not_conditions)
+        
+        if not conditions:
+            raise ValidationError(
+                code="INVALID_FILTER",
+                message="Filter dictionary must contain 'must', 'should', or 'must_not' conditions",
+                details={"filter_dict": filter_dict},
+                suggestions=["Provide at least one condition in must/should/must_not", "Check filter format"]
+            )
+        
+        return Filter(must=conditions if "must" in filter_dict else None)
+    
+    def _filter_points_in_python(self, points: List, filter_dict: Dict) -> List:
+        """
+        Filter points in Python when Qdrant filter fails (e.g., unindexed fields).
+        
+        Args:
+            points: List of Qdrant point objects
+            filter_dict: Filter dictionary with must/should/must_not conditions
+            
+        Returns:
+            Filtered list of points
+        """
+        filtered_points = []
+        
+        for point in points:
+            payload = point.payload or {}
+            matches = True
+            
+            # Handle must conditions (all must match)
+            if "must" in filter_dict:
+                for cond in filter_dict["must"]:
+                    if "key" in cond and "match" in cond:
+                        field_value = payload.get(cond["key"])
+                        match_value = cond["match"]
+                        # String matching (case-insensitive for flexibility)
+                        if str(field_value).lower() != str(match_value).lower():
+                            matches = False
+                            break
+                if not matches:
+                    continue
+            
+            # Handle should conditions (at least one must match)
+            if "should" in filter_dict and filter_dict["should"]:
+                should_match = False
+                for cond in filter_dict["should"]:
+                    if "key" in cond and "match" in cond:
+                        field_value = payload.get(cond["key"])
+                        match_value = cond["match"]
+                        if str(field_value).lower() == str(match_value).lower():
+                            should_match = True
+                            break
+                if not should_match:
+                    matches = False
+            
+            # Handle must_not conditions (none should match)
+            if "must_not" in filter_dict:
+                for cond in filter_dict["must_not"]:
+                    if "key" in cond and "match" in cond:
+                        field_value = payload.get(cond["key"])
+                        match_value = cond["match"]
+                        if str(field_value).lower() == str(match_value).lower():
+                            matches = False
+                            break
+            
+            if matches:
+                filtered_points.append(point)
+        
+        return filtered_points
+    
+    def ensure_collection_exists(self, collection: str = "cloud"):
+        """
+        Auto-create collection if missing.
+        
+        Args:
+            collection: Collection type ("cloud" or "local")
+        """
+        if collection == "cloud":
+            self._ensure_collection(self.cloud_client, self.cloud_collection, "cloud")
+        elif collection == "local":
+            if self.local_enabled:
+                self._ensure_collection(self.local_client, self.local_collection, "local")
+            else:
+                logger.warning("Local storage is disabled. Cannot ensure local collection exists.")
+        else:
+            raise ValueError(f"Invalid collection: {collection}. Must be 'cloud' or 'local'")
+    
+    def chunk_batch(self, items: List, batch_size: int) -> List[List]:
+        """
+        Chunk items into smaller batches.
+        
+        Args:
+            items: List of items to chunk
+            batch_size: Size of each batch
+            
+        Returns:
+            List of batches
+        """
+        return [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
 

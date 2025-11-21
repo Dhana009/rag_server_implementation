@@ -42,14 +42,24 @@ def main():
         if args.cloud:
             collections = ["cloud"]
         elif args.local:
+            if not store.local_enabled:
+                logger.error("Local storage is disabled. Cannot recover from local collection. Enable it in config.local_qdrant.enabled")
+                return 1
             collections = ["local"]
         else:
-            collections = ["cloud", "local"]
+            collections = ["cloud"]
+            if store.local_enabled:
+                collections.append("local")
+            else:
+                logger.info("Local storage is disabled. Recovering from cloud only.")
         
         total_deleted = 0
         total_recovered = 0
         
         for collection in collections:
+            # Skip if local is disabled
+            if collection == "local" and not store.local_enabled:
+                continue
             client = store.cloud_client if collection == "cloud" else store.local_client
             coll_name = store.cloud_collection if collection == "cloud" else store.local_collection
             

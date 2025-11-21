@@ -51,13 +51,20 @@ def main():
         logger.info("✅ Vector store initialized")
         
         # Determine collections to update
+        # Default: cloud only (local storage is disabled by default)
         collections = []
         if args.cloud:
             collections = ["cloud"]
         elif args.local:
+            if not store.local_enabled:
+                logger.error("Local storage is disabled. Cannot index to local collection. Enable it in config.local_qdrant.enabled")
+                return 1
             collections = ["local"]
         else:
-            collections = ["cloud", "local"]
+            # Default: cloud only
+            collections = ["cloud"]
+            # Only add local if explicitly enabled AND user wants both
+            # (This script doesn't have a --both flag, so default is cloud only)
 
         # Determine what to index
         index_docs = not args.code_only
@@ -197,6 +204,9 @@ def main():
         # Cleanup orphaned files (soft-delete by default, requires --prune to mark as deleted)
         total_cleaned = 0
         for collection in collections:
+            # Skip cleanup for local if it's disabled
+            if collection == "local" and not store.local_enabled:
+                continue
             # Default: dry_run=True (safe, only reports)
             # With --prune: dry_run=False (actually marks as deleted)
             cleaned = store.cleanup_deleted_files(existing_files, collection, dry_run=not args.prune)

@@ -24,8 +24,13 @@ def clean_collection(store, collection_name, collection_type):
     try:
         if collection_type == "cloud":
             client = store.cloud_client
-        else:
+        elif collection_type == "local":
+            if not store.local_enabled:
+                logger.warning(f"Local storage is disabled. Skipping cleanup for local collection.")
+                return True
             client = store.local_client
+        else:
+            raise ValueError(f"Invalid collection type: {collection_type}")
         
         # Get collection info
         try:
@@ -77,9 +82,12 @@ def main():
         print("Cleaning cloud collection...")
         clean_collection(store, config.cloud_qdrant.collection, "cloud")
         
-        # Clean local collection
-        print("\nCleaning local collection...")
-        clean_collection(store, config.local_qdrant.collection, "local")
+        # Clean local collection (only if enabled)
+        if store.local_enabled:
+            print("\nCleaning local collection...")
+            clean_collection(store, config.local_qdrant.collection, "local")
+        else:
+            print("\nSkipping local collection (disabled in config)")
         
         print()
         print("=" * 60)

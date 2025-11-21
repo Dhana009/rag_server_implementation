@@ -201,48 +201,51 @@ def index_all_documents(vector_store: HybridVectorStore, config: Config) -> Dict
                 logger.error(f"Failed to index {file_path}: {e}")
                 stats["errors"] += 1
     
-    # Index local docs (mirror cloud + local-only)
-    # First mirror all cloud docs to local
-    for pattern in config.cloud_docs:
-        for file_path in base_path.glob(pattern):
-            if file_path.is_file() and file_path.suffix == '.md':
-                try:
-                    rel_path = str(file_path.relative_to(base_path))
-                    logger.info(f"\n{'='*70}")
-                    logger.info(f"📝 Indexing: {rel_path} (local)")
-                    logger.info(f"{'='*70}")
-                    
-                    content = file_path.read_text(encoding='utf-8')
-                    chunks = chunk_markdown(content, rel_path,
-                                           chunk_size=config.chunk_size,
-                                           overlap=config.chunk_overlap)
-                    logger.info(f"   Generated {len(chunks)} chunks from file")
-                    
-                    if vector_store.index_doc(rel_path, "local", chunks):
-                        stats["local"] += len(chunks)
-                    else:
+    # Index local docs (mirror cloud + local-only) - only if local storage is enabled
+    if vector_store.local_enabled:
+        # First mirror all cloud docs to local
+        for pattern in config.cloud_docs:
+            for file_path in base_path.glob(pattern):
+                if file_path.is_file() and file_path.suffix == '.md':
+                    try:
+                        rel_path = str(file_path.relative_to(base_path))
+                        logger.info(f"\n{'='*70}")
+                        logger.info(f"📝 Indexing: {rel_path} (local)")
+                        logger.info(f"{'='*70}")
+                        
+                        content = file_path.read_text(encoding='utf-8')
+                        chunks = chunk_markdown(content, rel_path,
+                                               chunk_size=config.chunk_size,
+                                               overlap=config.chunk_overlap)
+                        logger.info(f"   Generated {len(chunks)} chunks from file")
+                        
+                        if vector_store.index_doc(rel_path, "local", chunks):
+                            stats["local"] += len(chunks)
+                        else:
+                            stats["errors"] += 1
+                    except Exception as e:
+                        logger.error(f"Failed to mirror {file_path} to local: {e}")
                         stats["errors"] += 1
-                except Exception as e:
-                    logger.error(f"Failed to mirror {file_path} to local: {e}")
-                    stats["errors"] += 1
-    
-    # Index local-only docs
-    for pattern in config.local_docs:
-        for file_path in base_path.glob(pattern):
-            if file_path.is_file() and file_path.suffix == '.md':
-                try:
-                    content = file_path.read_text(encoding='utf-8')
-                    chunks = chunk_markdown(content, str(file_path.relative_to(base_path)),
-                                           chunk_size=config.chunk_size,
-                                           overlap=config.chunk_overlap)
-                    rel_path = str(file_path.relative_to(base_path))
-                    if vector_store.index_doc(rel_path, "local", chunks):
-                        stats["local"] += len(chunks)
-                    else:
+        
+        # Index local-only docs
+        for pattern in config.local_docs:
+            for file_path in base_path.glob(pattern):
+                if file_path.is_file() and file_path.suffix == '.md':
+                    try:
+                        content = file_path.read_text(encoding='utf-8')
+                        chunks = chunk_markdown(content, str(file_path.relative_to(base_path)),
+                                               chunk_size=config.chunk_size,
+                                               overlap=config.chunk_overlap)
+                        rel_path = str(file_path.relative_to(base_path))
+                        if vector_store.index_doc(rel_path, "local", chunks):
+                            stats["local"] += len(chunks)
+                        else:
+                            stats["errors"] += 1
+                    except Exception as e:
+                        logger.error(f"Failed to index local doc {file_path}: {e}")
                         stats["errors"] += 1
-                except Exception as e:
-                    logger.error(f"Failed to index local doc {file_path}: {e}")
-                    stats["errors"] += 1
+    else:
+        logger.info("Local storage is disabled. Skipping local indexing.")
     
     return stats
 
