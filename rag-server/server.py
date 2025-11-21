@@ -12,6 +12,7 @@ Provides 7 core vector database operations:
 - index_repository: Index/update entire repository into Qdrant
 """
 
+import asyncio
 import logging
 import os
 import sys
@@ -212,7 +213,79 @@ async def call_tool(name: str, arguments: dict) -> dict:
         collection = arguments.get("collection", "cloud")
         doc_patterns = arguments.get("doc_patterns")
         code_patterns = arguments.get("code_patterns")
-        result = index_repository(repository_path, index_docs, index_code, collection, doc_patterns, code_patterns)
+        timeout_seconds = arguments.get("timeout_seconds")
+        
+        # Get timeout from parameter or environment variable (default: 30 minutes)
+        if timeout_seconds is None:
+            timeout_seconds = int(os.getenv("INDEX_REPOSITORY_TIMEOUT", "1800"))  # 30 minutes default
+        
+        # Run index_repository in a thread executor to prevent blocking the MCP event loop
+        # This allows other requests (like list_tools) to be processed concurrently
+        logger.info(f"Starting non-blocking index_repository for: {repository_path} (timeout: {timeout_seconds}s)")
+        try:
+            # Use asyncio.to_thread() if available (Python 3.9+), otherwise use run_in_executor
+            if hasattr(asyncio, 'to_thread'):
+                index_task = asyncio.to_thread(
+                    index_repository,
+                    repository_path, index_docs, index_code, collection, doc_patterns, code_patterns
+                )
+            else:
+                # Fallback for Python 3.8
+                loop = asyncio.get_event_loop()
+                index_task = loop.run_in_executor(
+                    None,
+                    index_repository,
+                    repository_path, index_docs, index_code, collection, doc_patterns, code_patterns
+                )
+            
+            # Apply timeout with graceful handling
+            try:
+                result = await asyncio.wait_for(index_task, timeout=timeout_seconds)
+                logger.info(f"index_repository completed for: {repository_path}")
+            except asyncio.TimeoutError:
+                logger.warning(f"index_repository timed out after {timeout_seconds}s for: {repository_path}")
+                # Return timeout error response
+                from lib.tools.vector_crud import _create_response, _format_error
+                timeout_error = TimeoutError(f"Indexing operation timed out after {timeout_seconds} seconds. The operation may have partially completed.")
+                error_response = _create_response(
+                    success=False,
+                    data=None,
+                    metadata={
+                        "operation": "index_repository",
+                        "timeout_seconds": timeout_seconds,
+                        "partial_completion": True
+                    },
+                    errors=[_format_error(timeout_error)]
+                )
+                result = error_response
+        except asyncio.CancelledError:
+            logger.warning(f"index_repository was cancelled for: {repository_path}")
+            # Return cancellation error response
+            from lib.tools.vector_crud import _create_response, _format_error
+            cancel_error = Exception("Indexing operation was cancelled. The operation may have partially completed.")
+            error_response = _create_response(
+                success=False,
+                data=None,
+                metadata={
+                    "operation": "index_repository",
+                    "cancelled": True,
+                    "partial_completion": True
+                },
+                errors=[_format_error(cancel_error)]
+            )
+            result = error_response
+        except Exception as e:
+            logger.error(f"index_repository failed: {e}", exc_info=True)
+            # Return error response in the same format as the function would
+            # Import the helper functions to match the exact format
+            from lib.tools.vector_crud import _create_response, _format_error
+            error_response = _create_response(
+                success=False,
+                data=None,
+                metadata={"operation": "index_repository"},
+                errors=[_format_error(e)]
+            )
+            result = error_response
     elif name == "delete_all":
         collection = arguments.get("collection", "cloud")
         confirm = arguments.get("confirm", False)

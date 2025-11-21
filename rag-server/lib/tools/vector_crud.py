@@ -926,7 +926,10 @@ def index_repository(
         
         # Set default patterns if not provided
         if doc_patterns is None:
-            doc_patterns = ["**/*.md", "README.md"]
+            # Use **/README.md to match README.md files at any depth (root or subdirectories)
+            # Note: "**/*.md" already matches all .md files including README.md, but we keep
+            # the explicit pattern for clarity and to ensure root-level README.md is found
+            doc_patterns = ["**/*.md", "**/README.md"]
         if code_patterns is None:
             code_patterns = ["**/*.py", "**/*.ts", "**/*.js", "**/*.tsx", "**/*.jsx"]
         
@@ -961,7 +964,9 @@ def index_repository(
             "docs_indexed": 0,
             "code_indexed": 0,
             "errors": 0,
+            "error_details": [],  # Track individual errors with context
             "files_processed": [],
+            "files_failed": [],  # Track files that failed to index
             "progress": {
                 "status": "initializing",
                 "stage": "starting",
@@ -974,7 +979,7 @@ def index_repository(
             }
         }
         
-        def add_progress_message(message: str, stage: str = None, print_to_stderr: bool = False):
+        def add_progress_message(message: str, stage: str = None, print_to_stderr: bool = True):
             """Add progress message to results and optionally print to stderr for real-time visibility"""
             import sys  # Import sys in closure scope
             results["progress"]["messages"].append(message)
@@ -982,8 +987,8 @@ def index_repository(
                 results["progress"]["stage"] = stage
             # Use INFO level, not ERROR (progress messages are informational)
             logger.info(message)
-            # Only print to stderr if explicitly requested (disabled by default to avoid cluttering Cursor logs)
-            # Progress is still available in the response metadata
+            # Print to stderr by default for real-time visibility during long-running operations
+            # This allows MCP clients to see progress even when the operation is running in a thread
             if print_to_stderr:
                 print(f"[PROGRESS] {message}", file=sys.stderr, flush=True)
         
@@ -1003,18 +1008,38 @@ def index_repository(
                 
                 if doc_files:
                     add_progress_message(f"📝 Starting documentation indexing...", "indexing_docs")
-                    doc_results = index_all_documents(store, config)
-                    for coll in collections:
-                        results["docs_indexed"] += doc_results.get(coll, 0)
-                    results["errors"] += doc_results.get("errors", 0)
-                    results["progress"]["docs_processed"] = len(doc_files)
-                    add_progress_message(f"✅ Documentation indexing complete: {results['docs_indexed']} chunks indexed", "docs_complete")
+                    try:
+                        doc_results = index_all_documents(store, config)
+                        for coll in collections:
+                            results["docs_indexed"] += doc_results.get(coll, 0)
+                        doc_errors = doc_results.get("errors", 0)
+                        results["errors"] += doc_errors
+                        results["progress"]["docs_processed"] = len(doc_files)
+                        if doc_errors > 0:
+                            add_progress_message(f"⚠️  Documentation indexing complete with {doc_errors} errors: {results['docs_indexed']} chunks indexed", "docs_complete")
+                        else:
+                            add_progress_message(f"✅ Documentation indexing complete: {results['docs_indexed']} chunks indexed", "docs_complete")
+                    except Exception as e:
+                        logger.error(f"Document indexing failed: {e}", exc_info=True)
+                        results["errors"] += 1
+                        results["error_details"].append({
+                            "stage": "document_indexing",
+                            "error": str(e),
+                            "error_type": type(e).__name__
+                        })
+                        add_progress_message(f"❌ Document indexing failed: {str(e)}", "error")
+                        # Continue processing - don't fail completely
                 else:
                     add_progress_message("⚠️  No documentation files found matching patterns", "docs_complete")
             except Exception as e:
-                logger.error(f"Document indexing failed: {e}", exc_info=True)
+                logger.error(f"Document indexing setup failed: {e}", exc_info=True)
                 results["errors"] += 1
-                add_progress_message(f"❌ Document indexing failed: {str(e)}", "error")
+                results["error_details"].append({
+                    "stage": "document_indexing_setup",
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                add_progress_message(f"❌ Document indexing setup failed: {str(e)}", "error")
         
         # Index code
         if index_code:
@@ -1048,16 +1073,43 @@ def index_repository(
                         add_progress_message(f"   [{idx}/{len(code_files)}] Indexing: {rel_path}", "indexing_code")
                         
                         try:
+                            file_indexed = False
+                            file_errors = 0
                             for coll in collections:
-                                if code_indexer.index_file(str(code_file), coll):
-                                    results["code_indexed"] += 1
-                                    processed_count += 1
-                                    results["files_processed"].append(rel_path)
-                                else:
-                                    results["errors"] += 1
+                                try:
+                                    if code_indexer.index_file(str(code_file), coll):
+                                        results["code_indexed"] += 1
+                                        file_indexed = True
+                                    else:
+                                        file_errors += 1
+                                except Exception as coll_error:
+                                    logger.warning(f"Failed to index {code_file} in {coll} collection: {coll_error}")
+                                    file_errors += 1
+                                    results["error_details"].append({
+                                        "stage": "code_indexing",
+                                        "file": rel_path,
+                                        "collection": coll,
+                                        "error": str(coll_error),
+                                        "error_type": type(coll_error).__name__
+                                    })
+                            
+                            if file_indexed:
+                                processed_count += 1
+                                results["files_processed"].append(rel_path)
+                            if file_errors > 0:
+                                results["errors"] += file_errors
+                                results["files_failed"].append(rel_path)
+                                add_progress_message(f"   ⚠️  Failed to index {rel_path} in {file_errors} collection(s)", "indexing_code")
                         except Exception as e:
-                            logger.warning(f"Failed to index {code_file}: {e}")
+                            logger.warning(f"Failed to index {code_file}: {e}", exc_info=True)
                             results["errors"] += 1
+                            results["files_failed"].append(rel_path)
+                            results["error_details"].append({
+                                "stage": "code_indexing",
+                                "file": rel_path,
+                                "error": str(e),
+                                "error_type": type(e).__name__
+                            })
                             add_progress_message(f"   ⚠️  Failed to index {rel_path}: {str(e)}", "indexing_code")
                     
                     results["progress"]["code_processed"] = processed_count
@@ -1066,9 +1118,14 @@ def index_repository(
                 else:
                     add_progress_message("⚠️  No code files found matching patterns", "code_complete")
             except Exception as e:
-                logger.error(f"Code indexing failed: {e}", exc_info=True)
+                logger.error(f"Code indexing setup failed: {e}", exc_info=True)
                 results["errors"] += 1
-                add_progress_message(f"❌ Code indexing failed: {str(e)}", "error")
+                results["error_details"].append({
+                    "stage": "code_indexing_setup",
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                add_progress_message(f"❌ Code indexing setup failed: {str(e)}", "error")
         
         # Cleanup: Soft-delete chunks from files that no longer exist in repo
         add_progress_message("🧹 Cleaning up orphaned chunks (soft-delete)...", "cleanup")
@@ -1128,8 +1185,11 @@ def index_repository(
         
         logger.info(f"✅ index_repository completed in {elapsed:.2f}s: {results['docs_indexed']} docs, {results['code_indexed']} code files")
         
+        # Determine overall success (partial success if some files indexed despite errors)
+        overall_success = total_chunks > 0 or results["errors"] == 0
+        
         return _create_response(
-            success=True,
+            success=overall_success,
             data={
                 **results,
                 "collection_stats": stats,
@@ -1138,10 +1198,12 @@ def index_repository(
                     "total_chunks": total_chunks,
                     "docs_chunks": results["docs_indexed"],
                     "code_chunks": results["code_indexed"],
-                    "files_processed": len(results["files_processed"]),
+                    "files_processed": len(results.get("files_processed", [])),
+                    "files_failed": len(results.get("files_failed", [])),
                     "errors": results["errors"],
                     "cleanup_deleted": cleanup_count,
-                    "elapsed_seconds": round(elapsed, 2)
+                    "elapsed_seconds": round(elapsed, 2),
+                    "partial_success": results["errors"] > 0 and total_chunks > 0
                 }
             },
             metadata={
@@ -1149,7 +1211,7 @@ def index_repository(
                 "operation": "index_repository",
                 "progress": results["progress"]
             },
-            errors=[]
+            errors=results.get("error_details", []) if results["errors"] > 0 else []
         )
         
     except Exception as e:
@@ -1341,7 +1403,7 @@ search_by_metadata_tool_mcp = Tool(
 
 index_repository_tool_mcp = Tool(
     name="index_repository",
-    description="Index/update entire repository into Qdrant. Automatically finds and indexes all documentation and code files. Handles incremental updates.",
+    description="Index/update entire repository into Qdrant. Automatically finds and indexes all documentation and code files. Handles incremental updates. Supports timeout and cancellation. Enhanced error handling continues processing on individual file failures.",
     inputSchema={
         "type": "object",
         "properties": {
@@ -1376,6 +1438,12 @@ index_repository_tool_mcp = Tool(
                 "description": "Glob patterns for code files (default: ['**/*.py', '**/*.ts', '**/*.js'])",
                 "items": {"type": "string"},
                 "default": ["**/*.py", "**/*.ts", "**/*.js"]
+            },
+            "timeout_seconds": {
+                "type": "integer",
+                "description": "Timeout in seconds for the indexing operation (default: 1800 = 30 minutes, or set via INDEX_REPOSITORY_TIMEOUT env var)",
+                "default": 1800,
+                "minimum": 1
             }
         },
         "required": ["repository_path"]
